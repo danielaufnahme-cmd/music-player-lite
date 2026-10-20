@@ -1,0 +1,806 @@
+// Reusable widgets, matching the Flutter/Material 3 look of app/lib/widgets.
+import { Theme, Type, Radius, Covers, TrackItem, CardItem } from "theme.slint";
+import { Icons } from "icons.slint";
+import { Lib, Player, Ui } from "state.slint";
+
+export component Txt inherits Text {
+    color: Theme.text;
+    font-size: Type.body-medium;
+    vertical-alignment: center;
+}
+
+export component Icon inherits Image {
+    width: 24px;
+    height: 24px;
+    colorize: Theme.text;
+    image-fit: contain;
+}
+
+export component IconButton {
+    in property <image> icon;
+    in property <length> icon-size: 24px;
+    in property <color> color: Theme.text;
+    in property <bool> enabled: true;
+    in property <bool> selected;
+    in property <length> size: 40px;
+    in property <color> fill: transparent;
+    out property <bool> has-hover: touch.has-hover;
+    callback clicked();
+    width: size;
+    height: size;
+    Rectangle {
+        border-radius: self.height / 2;
+        background: touch.has-hover && enabled ? (fill == transparent ? Theme.text.with-alpha(0.08) : fill.mix(Theme.text, 0.9)) : fill;
+        animate background { duration: 150ms; }
+    }
+    Icon {
+        width: icon-size;
+        height: icon-size;
+        source: icon;
+        colorize: enabled ? color : color.with-alpha(0.38);
+    }
+    touch := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => { if (enabled) { root.clicked(); } }
+    }
+}
+
+// Buttons: 8px corners. Only the filled kind uses the accent; the rest stay neutral.
+export component Button inherits Rectangle {
+    // 0 filled, 1 tonal, 2 outlined, 3 text
+    in property <int> kind: 0;
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <bool> enabled: true;
+    in property <bool> busy: false;
+    in property <length> pad-h: has-icon ? 14px : 16px;
+    in property <length> pad-v: 8px;
+    in property <length> icon-size: 18px;
+    in property <length> font-size: Type.label-large;
+    callback clicked();
+    private property <color> fg: !enabled ? Theme.text.with-alpha(0.38)
+        : kind == 0 ? Theme.on-accent
+        : kind == 3 && !touch.has-hover ? Theme.text.with-alpha(0.72)
+        : Theme.text;
+    private property <color> bg: kind == 0 ? (enabled ? Theme.accent : Theme.text.with-alpha(0.12))
+        : kind == 1 ? (enabled ? Theme.text.with-alpha(0.08) : Theme.text.with-alpha(0.05))
+        : transparent;
+    border-radius: Radius.control;
+    background: touch.has-hover && enabled ? (kind == 0 ? bg.mix(fg, 0.9) : Theme.text.with-alpha(kind == 1 ? 0.13 : 0.06)) : bg;
+    border-width: kind == 2 ? 1px : 0;
+    border-color: Theme.text.with-alpha(enabled ? 0.18 : 0.08);
+    min-height: 36px;
+    animate background { duration: 150ms; }
+    HorizontalLayout {
+        padding-left: kind == 3 ? 10px : pad-h;
+        padding-right: kind == 3 ? 10px : (has-icon ? pad-h + 2px : pad-h);
+        padding-top: pad-v;
+        padding-bottom: pad-v;
+        spacing: 8px;
+        alignment: center;
+        if has-icon || busy: Rectangle {
+            width: icon-size;
+            Icon {
+                width: icon-size;
+                height: icon-size;
+                source: busy ? Icons.sync : icon;
+                colorize: fg;
+            }
+        }
+        Txt {
+            text: root.text;
+            color: fg;
+            font-size: root.font-size;
+            font-weight: 600;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => { if (enabled && !busy) { root.clicked(); } }
+    }
+}
+
+export component Checkbox inherits Rectangle {
+    // 0 unchecked, 1 mixed, 2 checked
+    in property <int> state;
+    callback toggled();
+    width: 40px;
+    height: 40px;
+    Rectangle {
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        border-width: state == 0 ? 1.5px : 0;
+        border-color: Theme.muted;
+        background: state == 0 ? transparent : Theme.accent;
+        if state == 2: Icon {
+            width: 16px;
+            height: 16px;
+            source: Icons.check;
+            colorize: Theme.on-accent;
+        }
+        if state == 1: Rectangle {
+            width: 10px;
+            height: 2px;
+            background: Theme.on-accent;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+    Rectangle {
+        width: 30px;
+        height: 30px;
+        border-radius: Radius.control;
+        background: touch.has-hover ? Theme.text.with-alpha(0.08) : transparent;
+    }
+}
+
+export component Switch inherits Rectangle {
+    in property <bool> on;
+    callback toggled();
+    width: 52px;
+    height: 32px;
+    border-radius: 16px;
+    background: on ? Theme.accent : Theme.surface-high;
+    border-width: on ? 0 : 2px;
+    border-color: Theme.muted;
+    knob := Rectangle {
+        width: on ? 24px : 16px;
+        height: self.width;
+        border-radius: self.width / 2;
+        x: on ? parent.width - self.width - 4px : 8px;
+        background: on ? Theme.on-accent : Theme.muted;
+        animate x, width { duration: 150ms; easing: ease-out; }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// Filled text field with optional prefix icon and suffix action.
+export component Field inherits Rectangle {
+    in-out property <string> text;
+    in property <string> hint;
+    in property <string> label;
+    in property <image> prefix;
+    in property <bool> has-prefix;
+    in property <image> suffix;
+    in property <bool> has-suffix;
+    in property <length> font-size: Type.body-large;
+    in property <length> pad-v: 14px;
+    in property <bool> enabled: true;
+    in property <length> letter-spacing: 0px;
+    in property <int> font-weight: 400;
+    in property <string> error;
+    callback edited(string);
+    callback accepted(string);
+    callback suffix-clicked();
+    public function focus-input() { input.focus(); }
+    public function select-all() { input.select-all(); }
+    out property <bool> has-focus: input.has-focus;
+    min-height: 40px;
+    VerticalLayout {
+        spacing: 4px;
+        box := Rectangle {
+            border-radius: Radius.control;
+            background: Theme.text.with-alpha(Theme.dark ? 0.06 : 0.05);
+            border-width: 1px;
+            border-color: root.error != "" ? Theme.error : (input.has-focus ? Theme.text.with-alpha(0.32) : Theme.text.with-alpha(0.08));
+            HorizontalLayout {
+                padding-left: has-prefix ? 12px : 16px;
+                padding-right: has-suffix ? 4px : 16px;
+                padding-top: pad-v;
+                padding-bottom: pad-v;
+                spacing: 12px;
+                if has-prefix: VerticalLayout {
+                    alignment: center;
+                    Icon {
+                        source: prefix;
+                        colorize: Theme.muted;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    if root.label != "": Txt {
+                        text: root.label;
+                        font-size: Type.body-small;
+                        color: Theme.muted;
+                    }
+                    Rectangle {
+                        min-height: input.preferred-height;
+                        Txt {
+                            x: 0;
+                            width: parent.width;
+                            text: root.hint;
+                            visible: input.text == "";
+                            color: Theme.muted;
+                            font-size: root.font-size;
+                            overflow: elide;
+                        }
+                        input := TextInput {
+                            text <=> root.text;
+                            color: Theme.text;
+                            font-size: root.font-size;
+                            font-weight: root.font-weight;
+                            letter-spacing: root.letter-spacing;
+                            enabled: root.enabled;
+                            single-line: true;
+                            vertical-alignment: center;
+                            selection-background-color: Theme.accent.with-alpha(0.4);
+                            selection-foreground-color: Theme.text;
+                            edited => { root.edited(self.text); }
+                            accepted => { root.accepted(self.text); }
+                        }
+                    }
+                }
+                if has-suffix: IconButton {
+                    icon: suffix;
+                    icon-size: 22px;
+                    color: Theme.text;
+                    clicked => { root.suffix-clicked(); }
+                }
+            }
+        }
+        if root.error != "": Txt {
+            text: root.error;
+            color: Theme.error;
+            font-size: Type.body-small;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// Song cover from the backend, with the soft gradient placeholder behind it.
+export component Cover inherits Rectangle {
+    in property <string> id;
+    in property <length> size: 40px;
+    in property <length> radius: 4px;
+    in property <bool> circle;
+    private property <length> r: circle ? size / 2 : radius;
+    width: size;
+    height: size;
+    border-radius: r;
+    // solid: gradients ignore rounded corners in the software renderer
+    background: Theme.surface-high;
+    Icon {
+        width: size * 0.4;
+        height: size * 0.4;
+        source: Icons.music-note;
+        colorize: Theme.muted;
+    }
+    if id != "": Image {
+        width: size;
+        height: size;
+        source: Covers.get(id, size, r, Covers.rev);
+        image-fit: cover;
+    }
+}
+
+// 2x2 mosaic of the first four covers (or one cover / a gradient tile).
+export component PlaylistCover inherits Rectangle {
+    in property <[string]> covers;
+    in property <length> size: 176px;
+    in property <length> radius: 6px;
+    in property <bool> discover;
+    private property <length> half: size / 2;
+    width: size;
+    height: size;
+    border-radius: radius;
+    clip: true;
+    if covers.length >= 4: Rectangle {
+        Cover { x: 0; y: 0; id: covers[0]; size: half; radius: 0; }
+        Cover { x: half; y: 0; id: covers[1]; size: half; radius: 0; }
+        Cover { x: 0; y: half; id: covers[2]; size: half; radius: 0; }
+        Cover { x: half; y: half; id: covers[3]; size: half; radius: 0; }
+    }
+    if covers.length > 0 && covers.length < 4: Cover {
+        id: covers[0];
+        size: root.size;
+        radius: root.radius;
+    }
+    if covers.length == 0: Rectangle {
+        border-radius: radius;
+        background: Theme.surface-high;
+        Icon {
+            width: size * 0.32;
+            height: size * 0.32;
+            source: discover ? Icons.equalizer : Icons.queue-music;
+            colorize: Theme.muted;
+        }
+    }
+    // Discover mixes: a small mark in the corner instead of a colour wash.
+    if discover && covers.length > 0 && size >= 64px: Rectangle {
+        x: size * 0.06;
+        y: size - size * 0.06 - self.height;
+        width: size * 0.2;
+        height: self.width;
+        border-radius: 4px;
+        background: #000000a6;
+        Icon {
+            width: parent.width * 0.64;
+            height: self.width;
+            source: Icons.equalizer;
+            colorize: white;
+        }
+    }
+}
+
+export component RoundButton inherits Rectangle {
+    in property <image> icon;
+    in property <length> size: 48px;
+    in property <color> fill;
+    in property <color> fg;
+    callback clicked();
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    background: touch.has-hover ? fill.mix(white, 0.88) : fill;
+    Icon {
+        width: size * 0.6;
+        height: size * 0.6;
+        source: icon;
+        colorize: fg;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Card for horizontal rows and grids: artwork with the title underneath.
+// No card background; hover darkens the artwork and shows a play button.
+export component CoverCard inherits Rectangle {
+    in property <CardItem> card;
+    in property <length> image-size: 176px;
+    in property <bool> playable: card.kind <= 1;
+    callback tapped();
+    callback play();
+    callback download();
+    width: image-size;
+    height: image-size + 56px;
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.tapped(); }
+    }
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: image-size;
+        height: image-size;
+        if card.kind == 0 || card.kind == 3: Cover {
+            id: card.id;
+            size: image-size;
+            radius: Radius.cover;
+        }
+        if card.kind == 2: Cover {
+            id: card.id;
+            size: image-size;
+            circle: true;
+        }
+        if card.kind == 1: PlaylistCover {
+            covers: card.covers;
+            size: image-size;
+            discover: card.discover;
+        }
+        if card.kind == 4: Rectangle {
+            border-radius: Radius.cover;
+            border-width: 1px;
+            border-color: Theme.text.with-alpha(0.16);
+            Icon {
+                width: 40px;
+                height: 40px;
+                source: Icons.add;
+                colorize: Theme.muted;
+            }
+        }
+        if touch.has-hover && card.kind != 4: Rectangle {
+            border-radius: card.kind == 2 ? image-size / 2 : Radius.cover;
+            background: #00000033;
+        }
+        if card.downloadable && touch.has-hover: RoundButton {
+            x: parent.width - self.width - 8px;
+            y: 8px;
+            size: 32px;
+            icon: Icons.download;
+            fill: #0000008c;
+            fg: white;
+            clicked => { root.download(); }
+        }
+        if playable && touch.has-hover: RoundButton {
+            x: parent.width - self.width - 8px;
+            y: parent.height - self.height - 8px;
+            size: 44px;
+            icon: Icons.play-arrow;
+            fill: Theme.accent;
+            fg: Theme.on-accent;
+            clicked => { root.play(); }
+        }
+    }
+    Txt {
+        x: 0;
+        y: image-size + 12px;
+        width: image-size;
+        height: 19px;
+        text: card.title;
+        font-size: Type.title-small;
+        font-weight: 600;
+        overflow: elide;
+    }
+    if card.subtitle != "": Txt {
+        x: 0;
+        y: image-size + 34px;
+        width: image-size;
+        height: 17px;
+        text: card.subtitle;
+        font-size: Type.body-small;
+        color: Theme.muted;
+        overflow: elide;
+    }
+}
+
+// Circular progress ring (value < 0: indeterminate quarter arc).
+export component Ring inherits Path {
+    in property <float> value: -1;
+    in property <color> color: Theme.accent;
+    in property <length> thickness: 2.4px;
+    private property <float> v: value < 0 ? 0.28 : max(0.02, min(0.999, value));
+    private property <angle> a: v * 360deg;
+    width: 20px;
+    height: 20px;
+    viewbox-width: 20;
+    viewbox-height: 20;
+    stroke: color;
+    stroke-width: thickness;
+    fill: transparent;
+    commands: "M 10 1.5 A 8.5 8.5 0 " + (v > 0.5 ? "1" : "0") + " 1 " + (10 + 8.5 * sin(a)) + " " + (10 - 8.5 * cos(a));
+}
+
+// Download state of one song: done check, progress ring, retry/download button.
+export component DownloadIndicator inherits Rectangle {
+    in property <string> id;
+    in property <bool> downloaded;
+    in property <bool> can-download: true;
+    callback download();
+    private property <int> st: downloaded ? 1 : Lib.dl-state(id, Lib.dl-rev);
+    width: st == 0 || st == 4 ? 36px : 20px;
+    height: 36px;
+    if st == 1: Icon {
+        width: 20px;
+        height: 20px;
+        source: Icons.download-done;
+        colorize: Theme.muted.with-alpha(0.8);
+    }
+    if st == 2 || st == 3: Ring {
+        value: st == 2 ? -1 : Lib.dl-progress(id, Lib.dl-rev);
+    }
+    if (st == 0 || st == 4) && can-download: IconButton {
+        size: 36px;
+        icon: st == 4 ? Icons.error-outline : Icons.download;
+        icon-size: 20px;
+        color: st == 4 ? #FF5252 : Theme.muted;
+        clicked => { root.download(); }
+    }
+}
+
+// One song row (TrackTile + ConnectedTrackTile).
+export component TrackTile inherits Rectangle {
+    in property <TrackItem> track;
+    in property <int> index;
+    in property <string> list;
+    in property <bool> show-index: true;
+    in property <bool> show-album: Theme.wide-rows;
+    in property <bool> drag-handle: false;
+    callback drag-moved(length);
+    callback drag-done(length);
+    private property <bool> current: Player.has-track && Player.id == track.id;
+    private property <bool> hover: touch.has-hover || menu-btn.has-hover;
+    height: 60px;
+    Rectangle {
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: Radius.control;
+        background: hover ? Theme.text.with-alpha(0.07) : (current ? Theme.tint : transparent);
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Lib.track-clicked(list, index); }
+    }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        if drag-handle: Rectangle {
+            width: 24px;
+            Icon {
+                width: 20px;
+                height: 20px;
+                source: Icons.drag-indicator;
+                colorize: Theme.muted;
+            }
+            drag := TouchArea {
+                mouse-cursor: grab;
+                moved => { root.drag-moved(self.mouse-y - self.pressed-y); }
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.up) { root.drag-done(self.mouse-y - self.pressed-y); }
+                }
+            }
+        }
+        if show-index: Rectangle {
+            width: 32px;
+            if current && Player.playing && !hover: Icon {
+                width: 20px;
+                height: 20px;
+                source: Icons.graphic-eq;
+                colorize: Theme.accent;
+            }
+            if hover: Icon {
+                width: 22px;
+                height: 22px;
+                source: Icons.play-arrow;
+                colorize: Theme.text;
+            }
+            if !hover && !(current && Player.playing): Txt {
+                x: 0;
+                width: 22px;
+                horizontal-alignment: right;
+                text: index + 1;
+                font-size: Type.body-small;
+                color: current ? Theme.accent : Theme.muted;
+            }
+        }
+        Cover {
+            id: track.id;
+            size: 40px;
+            radius: Radius.thumb;
+        }
+        Rectangle { width: 12px; }
+        VerticalLayout {
+            horizontal-stretch: 5;
+            preferred-width: 0px;
+            min-width: 0px;
+            alignment: center;
+            spacing: 3px;
+            Txt {
+                text: track.title;
+                font-size: Type.body-medium;
+                font-weight: 600;
+                color: current ? Theme.accent : Theme.text;
+                overflow: elide;
+            }
+            Txt {
+                text: track.artist;
+                font-size: 13px;
+                color: Theme.muted;
+                overflow: elide;
+            }
+        }
+        if show-album: Rectangle {
+            horizontal-stretch: 3;
+            preferred-width: 0px;
+            Txt {
+                x: 12px;
+                width: parent.width - 12px;
+                horizontal-alignment: left;
+                text: track.album;
+                font-size: 13px;
+                color: Theme.muted;
+                overflow: elide;
+            }
+        }
+        Rectangle { width: 8px; }
+        VerticalLayout {
+            alignment: center;
+            DownloadIndicator {
+                id: track.id;
+                downloaded: track.downloaded;
+                download => { Lib.download(list, index); }
+            }
+        }
+        Rectangle { width: 12px; }
+        Txt {
+            width: 48px;
+            text: track.duration;
+            font-size: 13px;
+            color: Theme.muted;
+            horizontal-alignment: right;
+        }
+        Rectangle {
+            width: 40px;
+            menu-btn := IconButton {
+                icon: Icons.more-horiz;
+                color: Theme.muted;
+                opacity: hover ? 1 : 0.35;
+                clicked => {
+                    Ui.open-track-menu(list, index, self.absolute-position.x + self.width, self.absolute-position.y + self.height);
+                }
+            }
+        }
+    }
+}
+
+// Titled horizontal row of cards with scroll arrows.
+export component SectionRow inherits VerticalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> key;
+    in property <[CardItem]> cards;
+    in property <bool> loading;
+    spacing: 0px;
+    padding-bottom: 40px;
+    HorizontalLayout {
+        padding-bottom: 16px;
+        Txt {
+            horizontal-stretch: 1;
+            text: title;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.4px;
+            overflow: elide;
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            IconButton {
+                size: 28px;
+                icon-size: 20px;
+                color: flick.target > 0 ? Theme.text : Theme.muted.with-alpha(0.5);
+                icon: Icons.chevron-left;
+                clicked => { flick.target = max(0px, flick.target - flick.width * 0.8); }
+            }
+            IconButton {
+                size: 28px;
+                icon-size: 20px;
+                color: flick.target < flick.content-width - flick.width - 1px ? Theme.text : Theme.muted.with-alpha(0.5);
+                icon: Icons.chevron-right;
+                clicked => { flick.target = min(max(0px, flick.content-width - flick.width), flick.target + flick.width * 0.8); }
+            }
+        }
+    }
+    flick := Flickable {
+        in-out property <length> target;
+        height: 236px;
+        interactive: false;
+        content-width: max(0px, cards.length * 192px - 16px);
+        content-x: -target;
+        animate content-x { duration: 450ms; easing: ease-out; }
+        HorizontalLayout {
+            alignment: start;
+            spacing: 16px;
+            for c[i] in cards: CoverCard {
+                card: c;
+                tapped => { Lib.card-clicked(key, i); }
+                play => { Lib.card-play(key, i); }
+                download => { Lib.card-download(key, i); }
+            }
+        }
+        if loading: HorizontalLayout {
+            spacing: 16px;
+            for i in 6: VerticalLayout {
+                spacing: 8px;
+                Rectangle { width: 176px; height: 176px; border-radius: Radius.cover; background: Theme.tint; }
+                Rectangle { width: 120px; height: 12px; border-radius: 3px; background: Theme.tint; }
+                Rectangle { width: 80px; height: 10px; border-radius: 3px; background: Theme.tint; }
+            }
+        }
+    }
+}
+
+// Message for empty or failed views: small muted icon, plain text, one action.
+export component EmptyState inherits VerticalLayout {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> message;
+    in property <string> action;
+    in property <image> action-icon;
+    in property <bool> has-action-icon;
+    callback act();
+    alignment: center;
+    padding: 48px;
+    padding-top: 56px;
+    padding-bottom: 72px;
+    spacing: 0px;
+    HorizontalLayout {
+        alignment: center;
+        Icon {
+            width: 32px;
+            height: 32px;
+            source: icon;
+            colorize: Theme.muted;
+        }
+    }
+    Rectangle { height: 20px; }
+    HorizontalLayout {
+        alignment: center;
+        Txt {
+            text: title;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.2px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            max-width: 400px;
+        }
+    }
+    if message != "": HorizontalLayout {
+        alignment: center;
+        padding-top: 10px;
+        Txt {
+            text: message;
+            color: Theme.muted;
+            font-size: 13px;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            max-width: 400px;
+            min-width: 280px;
+        }
+    }
+    if action != "": HorizontalLayout {
+        alignment: center;
+        padding-top: 24px;
+        Button {
+            kind: 1;
+            text: action;
+            icon: action-icon;
+            has-icon: has-action-icon;
+            clicked => { root.act(); }
+        }
+    }
+}
+
+// Page title with an optional back button.
+export component PageHeader inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <bool> back;
+    callback go-back();
+    padding-left: 0px;
+    padding-right: 0px;
+    padding-top: 8px;
+    padding-bottom: 28px;
+    spacing: 12px;
+    if back: VerticalLayout {
+        alignment: center;
+        IconButton {
+            icon: Icons.arrow-back;
+            clicked => { root.go-back(); }
+        }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1;
+        alignment: center;
+        spacing: 8px;
+        Txt {
+            text: title;
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: -1.1px;
+        }
+        if subtitle != "": Txt {
+            text: subtitle;
+            font-size: 13px;
+            color: Theme.muted;
+        }
+    }
+    @children
+}
+
+// Thin linear progress bar (value < 0: indeterminate).
+export component Progress inherits Rectangle {
+    in property <float> value;
+    in property <length> thickness: 4px;
+    height: thickness;
+    border-radius: thickness / 2;
+    background: Theme.text.with-alpha(0.1);
+    clip: true;
+    Rectangle {
+        x: value < 0 ? parent.width * 0.3 : 0;
+        width: value < 0 ? parent.width * 0.35 : parent.width * clamp(value, 0, 1);
+        border-radius: thickness / 2;
+        background: Theme.accent;
+        animate width { duration: 400ms; }
+    }
+}

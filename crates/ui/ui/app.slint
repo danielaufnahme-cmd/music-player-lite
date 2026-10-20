@@ -1,0 +1,234 @@
+// Main window: sidebar · page · optional queue, with the glass player bar
+// floating over the bottom (app/lib/screens/shell.dart).
+import { Theme, Type, Covers } from "theme.slint";
+import { Icons } from "icons.slint";
+import { Nav, Page, Player, Lib, Ui } from "state.slint";
+import { Sidebar, PlayerBar, QueuePanel } from "shell.slint";
+import { HomePage, SearchPage, LibraryPage, DownloadsPage, PlaylistPage, TrackListPage } from "pages.slint";
+import { NowPlaying } from "nowplaying.slint";
+import { WaveStack } from "backdrop.slint";
+import { SettingsPage, Prefs } from "settings.slint";
+import { Dialogs, Menu, Snackbar } from "dialogs.slint";
+
+export { Theme, Covers, Icons, Nav, Page, Player, Lib, Ui, Prefs }
+
+export component AppWindow inherits Window {
+    title: "Music Player Lite";
+    icon: @image-url("../assets/icons/graphic_eq.svg");
+    no-frame: true;
+    preferred-width: 1440px;
+    preferred-height: 900px;
+    min-width: 760px;
+    min-height: 560px;
+    background: Theme.background;
+    default-font-family: "Plus Jakarta Sans";
+
+    // Wave/aurora images rendered by Rust (tiny-skia) at reduced resolution.
+    // Each backdrop = top / animated mid strip / low (see backdrop.slint).
+    in property <image> shell-top;
+    in property <image> shell-mid;
+    in property <image> shell-low;
+    in property <float> shell-f1: 0.5;
+    in property <float> shell-f2: 1.0;
+    // The shell strip is cut at the content panel's left edge: shell-mid up
+    // to it ([0, shell-m1) of the width) and shell-mid-p from it to the
+    // window's right edge, with the panel's tint + gradient already blended
+    // in, so the panel layer is not repainted per wave frame (visuals.rs).
+    in property <image> shell-mid-p;
+    in property <float> shell-m1: 1.0;
+    in property <length> shell-px;
+    in property <length> shell-pw;
+    in property <bool> shell-baked;
+    // Content panel geometry + colours for that baking.
+    out property <length> panel-x: content.absolute-position.x;
+    out property <length> panel-y: content.absolute-position.y;
+    out property <length> panel-w: content.width;
+    out property <length> panel-h: content.height;
+    out property <color> panel-tint: Theme.surface.mix(Theme.accent, 0.92).with-alpha(panel-tint-a);
+    // gradient over the tint, as one colour at the bottom (premultiplied lerp)
+    out property <color> panel-end: Theme.background.mix(Theme.surface.mix(Theme.accent, 0.92), panel-shade-a / panel-end-a).with-alpha(panel-end-a);
+    private property <float> panel-tint-a: Theme.dark ? 0.62 : 0.70;
+    private property <float> panel-shade-a: Theme.dark ? 0.45 : 0.30;
+    private property <float> panel-end-a: panel-shade-a + panel-tint-a - panel-shade-a * panel-tint-a;
+    private property <brush> panel-grad: @linear-gradient(180deg, panel-tint 0%, panel-end 100%);
+    callback panel-moved();
+    changed panel-x => { panel-moved(); }
+    changed panel-w => { panel-moved(); }
+    in property <image> np-top;
+    in property <image> np-mid;
+    in property <image> np-low;
+    in property <float> np-f1: 0.5;
+    in property <float> np-f2: 1.0;
+    in property <image> np-glow;
+    in property <image> bar-top;
+    in property <image> bar-mid;
+    in property <image> bar-low;
+    in property <float> bar-f1: 0.0;
+    in property <float> bar-f2: 1.0;
+
+    private property <bool> queue-open: Player.queue-open && Theme.win-width > 1150px;
+    private property <bool> collapsed: Theme.win-width < 1120px || (queue-open && Theme.win-width < 1400px);
+
+    changed width => { Theme.win-width = self.width; Ui.resized(); }
+    private property <bool> np-open: Player.now-playing-open;
+    changed np-open => { Ui.np-opened(); }
+    changed height => { Theme.win-height = self.height; Ui.resized(); }
+    init => {
+        Theme.win-width = self.width;
+        Theme.win-height = self.height;
+        keys.focus();
+    }
+    public function focus-search() { search-page.focus-field(); }
+    public function focus-keys() { keys.focus(); }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if (Ui.key-pressed(e.text, e.modifiers.control, e.modifiers.shift)) { return accept; }
+            reject
+        }
+        // Not drawn at all while Now Playing covers it.
+        Rectangle {
+            visible: !np-open;
+            WaveStack {
+                width: root.width;
+                height: root.height;
+                top: shell-top;
+                mid: shell-mid;
+                low: shell-low;
+                f1: shell-f1;
+                f2: shell-f2;
+                m1: shell-baked ? shell-m1 : 1.0;
+            }
+            Image {
+                visible: shell-baked;
+                x: shell-px;
+                y: root.height * shell-f1;
+                width: shell-pw;
+                height: root.height * (shell-f2 - shell-f1);
+                source: shell-mid-p;
+                image-fit: fill;
+            }
+            HorizontalLayout {
+                VerticalLayout {
+                    padding-left: 12px;
+                    padding-top: 12px;
+                    padding-bottom: 12px;
+                    Sidebar {
+                        width: collapsed ? 84px : 256px;
+                        collapsed: root.collapsed;
+                        animate width { duration: 250ms; easing: ease-out; }
+                    }
+                }
+                Rectangle {
+                    horizontal-stretch: 1;
+                    // Translucent so the waves glow through; rounded top corners only
+                    // (the bottom ones sit below the window edge).
+                    content := Rectangle {
+                        x: 12px;
+                        y: 12px;
+                        width: parent.width - 24px;
+                        height: parent.height + 10px;
+                        border-radius: 14px;
+                        clip: true;
+                        // Translucent tint + a darkening gradient over it, drawn as ONE
+                        // layer (cheaper to repaint behind the moving waves): a rounded
+                        // solid cap for the corners, then a single plain gradient that
+                        // equals "gradient over tint" exactly (premultiplied lerp).
+                        Rectangle {
+                            height: 14px;
+                            clip: true;
+                            Rectangle {
+                                y: 0;
+                                height: 28px;
+                                border-radius: 14px;
+                                background: panel-tint;
+                            }
+                        }
+                        Rectangle {
+                            visible: !shell-baked;
+                            y: 14px;
+                            height: parent.height - 14px;
+                            background: panel-grad;
+                        }
+                        // Baked: the wave strip under the panel already has the tint and
+                        // gradient in it; the gradient is drawn only above and below it.
+                        Rectangle {
+                            visible: shell-baked;
+                            y: 14px;
+                            height: max(0px, root.height * shell-f1 - content.absolute-position.y - 14px);
+                            clip: true;
+                            Rectangle {
+                                y: 0;
+                                height: content.height - 14px;
+                                background: panel-grad;
+                            }
+                        }
+                        Rectangle {
+                            visible: shell-baked;
+                            y: root.height * shell-f2 - content.absolute-position.y;
+                            height: max(0px, content.height - self.y);
+                            clip: true;
+                            Rectangle {
+                                y: 14px - parent.y;
+                                height: content.height - 14px;
+                                background: panel-grad;
+                            }
+                        }
+                        Rectangle {
+                            height: root.height - 12px;
+                            y: 0;
+                            if Nav.page == Page.home: HomePage { }
+                            search-page := SearchPage { visible: Nav.page == Page.search; }
+                            if Nav.page == Page.library: LibraryPage { }
+                            if Nav.page == Page.downloads: DownloadsPage { }
+                            if Nav.page == Page.settings: SettingsPage { }
+                            if Nav.page == Page.playlist: PlaylistPage { }
+                            if Nav.page == Page.artist || Nav.page == Page.album: TrackListPage { }
+                        }
+                    }
+                }
+                if queue-open: Rectangle {
+                    width: 342px;
+                    QueuePanel {
+                        x: 0;
+                        y: 12px;
+                        width: 330px;
+                        height: parent.height - 12px - 100px;
+                    }
+                }
+            }
+            PlayerBar {
+                x: collapsed ? 108px : 280px;
+                width: root.width - self.x - (queue-open ? 354px : 24px);
+                y: root.height - 16px - self.height;
+                wave-top: bar-top;
+                wave-mid: bar-mid;
+                wave-low: bar-low;
+                wave-f1: bar-f1;
+                wave-f2: bar-f2;
+            }
+        }
+        if Player.now-playing-open: NowPlaying {
+            width: root.width;
+            height: root.height;
+            glow: np-glow;
+            top: np-top;
+            mid: np-mid;
+            low: np-low;
+            f1: np-f1;
+            f2: np-f2;
+        }
+        Menu {
+            width: root.width;
+            height: root.height;
+        }
+        Dialogs {
+            width: root.width;
+            height: root.height;
+        }
+        if Ui.snack-visible: Snackbar {
+            x: (root.width - self.width) / 2;
+            y: root.height - 120px - self.height;
+        }
+    }
+}

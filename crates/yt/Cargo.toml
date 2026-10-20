@@ -1,0 +1,21 @@
+[package]
+name = "geonix-yt"
+description = "YouTube Music lookups, downloads (yt-dlp + ffmpeg), tagging and lyrics for Music Player Lite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["process", "time", "fs", "io-util", "sync", "macros", "rt"] }
+futures-util = { workspace = true }
+regex = "1.11"
+url = "2.5"
+id3 = "1.16"
+
+[dev-dependencies]
+id3 = "1.16"
+tokio = { workspace = true, features = ["process", "time", "fs", "io-util", "sync", "macros", "rt", "rt-multi-thread"] }

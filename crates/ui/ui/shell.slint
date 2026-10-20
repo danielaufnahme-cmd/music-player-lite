@@ -1,0 +1,888 @@
+// Sidebar, floating player bar, seek bar, transport controls and the queue panel.
+import { Theme, Type, Radius, Covers, TrackItem, PlaylistItem } from "theme.slint";
+import { Icons } from "icons.slint";
+import { Nav, Page, Player, Lib, Ui } from "state.slint";
+import { WaveStack } from "backdrop.slint";
+import { Txt, Icon, IconButton, Cover, PlaylistCover, Button, EmptyState } from "widgets.slint";
+
+component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> collapsed;
+    in property <int> badge;
+    callback clicked();
+    private property <color> fg: selected || touch.has-hover ? Theme.text : Theme.muted;
+    height: 38px;
+    border-radius: Radius.control;
+    background: selected ? Theme.text.with-alpha(0.08) : (touch.has-hover ? Theme.hover : transparent);
+    HorizontalLayout {
+        padding-left: collapsed ? 0 : 12px;
+        alignment: collapsed ? center : start;
+        spacing: 12px;
+        Rectangle {
+            width: 20px;
+            Icon {
+                width: 20px;
+                height: 20px;
+                source: icon;
+                colorize: selected ? Theme.accent : fg;
+            }
+            if badge > 0: Rectangle {
+                x: 12px;
+                y: parent.height / 2 - 18px;
+                height: 16px;
+                width: max(16px, badge-text.preferred-width + 8px);
+                border-radius: 8px;
+                background: Theme.accent;
+                badge-text := Txt {
+                    text: badge;
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Theme.on-accent;
+                }
+            }
+        }
+        if !collapsed: Txt {
+            text: label;
+            font-size: Type.title-small;
+            font-weight: selected ? 700 : 500;
+            color: fg;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component PlaylistRow inherits Rectangle {
+    in property <PlaylistItem> item;
+    in property <bool> selected;
+    in property <bool> collapsed;
+    callback clicked();
+    height: 48px;
+    border-radius: Radius.control;
+    background: selected ? Theme.text.with-alpha(0.08) : (touch.has-hover ? Theme.hover : transparent);
+    HorizontalLayout {
+        padding: 6px;
+        padding-left: collapsed ? 6px : 12px;
+        spacing: 12px;
+        alignment: collapsed ? center : start;
+        PlaylistCover {
+            covers: item.covers;
+            size: 36px;
+            radius: Radius.thumb;
+            discover: item.discover;
+        }
+        if !collapsed: VerticalLayout {
+            alignment: center;
+            Txt {
+                text: item.name;
+                font-weight: selected ? 700 : 500;
+                color: Theme.text;
+                overflow: elide;
+            }
+            Txt {
+                text: item.subtitle;
+                font-size: Type.body-small;
+                color: Theme.muted;
+                overflow: elide;
+            }
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component ThemeButton inherits Rectangle {
+    in property <bool> collapsed;
+    height: 40px;
+    border-radius: Radius.control;
+    background: theme-touch.has-hover ? Theme.hover : transparent;
+    HorizontalLayout {
+        padding-left: collapsed ? 0 : 12px;
+        padding-right: collapsed ? 0 : 12px;
+        spacing: 10px;
+        alignment: collapsed ? center : start;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                width: 20px;
+                height: 20px;
+                source: Lib.following-desktop ? Icons.wallpaper : Icons.palette;
+                colorize: Theme.muted;
+            }
+        }
+        if !collapsed: Txt {
+            text: Lib.theme-label;
+            color: Theme.muted;
+            overflow: elide;
+        }
+    }
+    theme-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Ui.open-theme-menu(root.absolute-position.x, root.absolute-position.y); }
+    }
+}
+
+component DevicesButton inherits Rectangle {
+    width: 40px;
+    height: 40px;
+    IconButton {
+        icon: Icons.devices;
+        icon-size: 20px;
+        color: Lib.syncing ? Theme.accent : Theme.muted;
+        clicked => { Lib.open-devices(); }
+    }
+    if Lib.syncing: Rectangle {
+        x: 26px;
+        y: parent.height / 2 - 12px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: Theme.accent;
+    }
+}
+
+export component Sidebar inherits Rectangle {
+    in property <bool> collapsed;
+    // Mostly opaque: the wave backdrop only glows faintly through.
+    background: Theme.surface.with-alpha(0.84);
+    border-radius: Radius.panel;
+    border-width: 1px;
+    border-color: Theme.outline;
+    VerticalLayout {
+        // Logo
+        HorizontalLayout {
+            padding-left: collapsed ? 0 : 22px;
+            padding-right: 12px;
+            padding-top: 22px;
+            padding-bottom: 20px;
+            spacing: 8px;
+            alignment: collapsed ? center : start;
+            VerticalLayout {
+                alignment: center;
+                Icon {
+                    width: 22px;
+                    height: 22px;
+                    source: Icons.graphic-eq;
+                    colorize: Theme.accent;
+                }
+            }
+            if !collapsed: Txt {
+                text: "Music Player Lite";
+                font-size: 19px;
+                font-weight: 800;
+                letter-spacing: -0.6px;
+            }
+        }
+        VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 2px;
+            NavItem {
+                icon: Icons.home;
+                label: "Home";
+                collapsed: root.collapsed;
+                selected: Nav.page == Page.home;
+                clicked => { Nav.go(Page.home); }
+            }
+            NavItem {
+                icon: Icons.search;
+                label: "Search";
+                collapsed: root.collapsed;
+                selected: Nav.page == Page.search;
+                clicked => { Nav.go(Page.search); }
+            }
+            NavItem {
+                icon: Icons.library-music;
+                label: "Library";
+                collapsed: root.collapsed;
+                selected: Nav.page == Page.library || Nav.page == Page.artist || Nav.page == Page.album;
+                clicked => { Nav.go(Page.library); }
+            }
+            NavItem {
+                icon: Icons.download;
+                label: "Downloads";
+                collapsed: root.collapsed;
+                badge: Lib.active-downloads;
+                selected: Nav.page == Page.downloads;
+                clicked => { Nav.go(Page.downloads); }
+            }
+        }
+        // PLAYLISTS header
+        HorizontalLayout {
+            padding-left: collapsed ? 0 : 22px;
+            padding-right: 10px;
+            padding-top: 24px;
+            padding-bottom: 4px;
+            alignment: collapsed ? center : stretch;
+            if !collapsed: Txt {
+                horizontal-stretch: 1;
+                text: "Playlists";
+                font-size: 13px;
+                font-weight: 700;
+                color: Theme.muted;
+            }
+            IconButton {
+                icon: Icons.add;
+                icon-size: 20px;
+                color: Theme.muted;
+                size: 30px;
+                clicked => { Lib.new-playlist(); }
+            }
+        }
+        Flickable {
+            vertical-stretch: 1;
+            content-height: list.preferred-height;
+            list := VerticalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 2px;
+                alignment: start;
+                if Lib.playlists-loading: Rectangle {
+                    height: 40px;
+                    border-radius: Radius.control;
+                    background: Theme.tint;
+                }
+                for p in Lib.playlists: PlaylistRow {
+                    item: p;
+                    collapsed: root.collapsed;
+                    selected: Nav.page == Page.playlist && Nav.playlist-id == p.id;
+                    clicked => { Nav.open-playlist(p.id, false); }
+                }
+            }
+        }
+        // Settings
+        VerticalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 6px;
+            NavItem {
+                icon: Icons.settings;
+                label: "Settings";
+                collapsed: root.collapsed;
+                selected: Nav.page == Page.settings;
+                clicked => { Nav.go(Page.settings); }
+            }
+        }
+        // Private listening
+        if Lib.private-listening > 0: Rectangle {
+            private property <bool> on: Lib.private-listening == 2;
+            private property <color> fg: on ? Theme.accent : (pl-touch.has-hover ? Theme.text : Theme.muted);
+            height: 40px;
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                Rectangle {
+                    border-radius: Radius.control;
+                    background: on ? Theme.accent-soft : (pl-touch.has-hover ? Theme.hover : transparent);
+                    HorizontalLayout {
+                        padding-left: collapsed ? 0 : 12px;
+                        padding-right: collapsed ? 0 : 12px;
+                        spacing: 12px;
+                        alignment: collapsed ? center : stretch;
+                        VerticalLayout {
+                            alignment: center;
+                            Icon {
+                                width: 20px;
+                                height: 20px;
+                                source: on ? Icons.visibility-off : Icons.visibility-outline;
+                                colorize: fg;
+                            }
+                        }
+                        if !collapsed: Txt {
+                            horizontal-stretch: 1;
+                            text: "Private listening";
+                            font-weight: 500;
+                            color: fg;
+                            overflow: elide;
+                        }
+                        if !collapsed: Txt {
+                            text: on ? "On" : "Off";
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: on ? Theme.accent : Theme.muted;
+                        }
+                    }
+                }
+            }
+            pl-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { Lib.toggle-private(); }
+            }
+        }
+        // Theme menu + devices: side by side, stacked when collapsed so
+        // both fit inside the narrow sidebar.
+        if !collapsed: HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 4px;
+            padding-bottom: 10px;
+            ThemeButton { horizontal-stretch: 1; }
+            if Lib.sync-available != 2: DevicesButton { }
+        }
+        if collapsed: VerticalLayout {
+            padding-top: 4px;
+            padding-bottom: 10px;
+            spacing: 2px;
+            HorizontalLayout {
+                alignment: center;
+                ThemeButton { width: 40px; collapsed: true; }
+            }
+            if Lib.sync-available != 2: HorizontalLayout {
+                alignment: center;
+                DevicesButton { }
+            }
+        }
+    }
+}
+
+// Seek line: the played part is a travelling wave while music plays.
+export component SeekBar inherits Rectangle {
+    in property <bool> large;
+    private property <bool> enabled: Player.duration > 0;
+    private property <float> drag: -1;
+    private property <float> fraction: drag >= 0 ? drag : (enabled ? clamp(Player.position / Player.duration, 0, 1) : 0);
+    private property <length> inset: 10px;
+    private property <length> stroke: large ? 4px : 3px;
+    private property <color> active: enabled ? Theme.accent : Theme.muted.with-alpha(0.5);
+    private property <length> track-w: bar.width - inset * 2;
+    private property <length> px: inset + track-w * fraction;
+    function frac-at(x: length) -> float {
+        return clamp((x - inset) / max(1px, track-w), 0, 1);
+    }
+    function fmt(secs: float) -> string {
+        return floor(secs / 60) + ":" + (mod(floor(secs), 60) < 10 ? "0" : "") + mod(floor(secs), 60);
+    }
+    private property <string> shown: drag >= 0 ? fmt(drag * Player.duration) : Player.position-text;
+
+    bar := Rectangle {
+        x: large ? 12px : 50px;
+        width: parent.width - (large ? 24px : 100px);
+        y: 0;
+        height: large ? 34px : 22px;
+        // inactive part
+        Rectangle {
+            x: px;
+            width: max(0px, bar.width - inset - px);
+            y: (parent.height - stroke) / 2;
+            height: stroke;
+            border-radius: stroke / 2;
+            background: Theme.muted.with-alpha(0.28);
+        }
+        // played part: flat line, or the wave from Rust while playing
+        if !Player.wave-on || drag >= 0: Rectangle {
+            x: inset;
+            width: max(0px, px - inset);
+            y: (parent.height - stroke) / 2;
+            height: stroke;
+            border-radius: stroke / 2;
+            background: active;
+        }
+        if Player.wave-on && drag < 0 && px > inset + 2px: Path {
+            x: 0;
+            y: 0;
+            width: bar.width;
+            height: bar.height;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: bar.width / 1px;
+            viewbox-height: bar.height / 1px;
+            commands: Player.wave-path(px, bar.height, large, Player.wave-tick);
+            stroke: active;
+            stroke-width: stroke;
+            fill: transparent;
+        }
+        // thumb
+        Rectangle {
+            x: px - self.width / 2;
+            width: large ? 6px : 5px;
+            height: large ? 20px : 14px;
+            border-radius: 3px;
+            background: active;
+        }
+        TouchArea {
+            mouse-cursor: enabled ? pointer : default;
+            pointer-event(e) => {
+                if (!enabled) { return; }
+                if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                    drag = frac-at(self.mouse-x);
+                } else if (e.kind == PointerEventKind.up && drag >= 0) {
+                    Player.seek(drag);
+                    drag = -1;
+                }
+            }
+            moved => {
+                if (enabled && self.pressed) { drag = frac-at(self.mouse-x); }
+            }
+        }
+    }
+    if !large: Txt {
+        x: 0;
+        width: 44px;
+        height: bar.height;
+        text: shown;
+        font-size: 11px;
+        color: Theme.muted;
+        horizontal-alignment: right;
+    }
+    if !large: Txt {
+        x: parent.width - 44px;
+        width: 44px;
+        height: bar.height;
+        text: Player.duration-text;
+        font-size: 11px;
+        color: Theme.muted;
+    }
+    if large: Txt {
+        x: 22px;
+        y: bar.height;
+        text: shown;
+        font-size: 13px;
+        color: Theme.muted;
+    }
+    if large: Txt {
+        x: parent.width - 22px - self.width;
+        y: bar.height;
+        text: Player.duration-text;
+        font-size: 13px;
+        color: Theme.muted;
+    }
+    height: large ? 54px : 22px;
+}
+
+// Circular accent play/pause button.
+export component PlayPause inherits Rectangle {
+    in property <length> size: 44px;
+    private property <bool> enabled: Player.has-track;
+    width: size;
+    height: size;
+    Rectangle {
+        width: size;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: !enabled ? Theme.text.with-alpha(0.08) : touch.has-hover ? Theme.accent.mix(Theme.on-accent, 0.88) : Theme.accent;
+        Icon {
+            width: size * 0.52;
+            height: size * 0.52;
+            source: Player.playing ? Icons.pause : Icons.play-arrow;
+            colorize: enabled ? Theme.on-accent : Theme.muted;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: enabled ? pointer : default;
+        clicked => { if (enabled) { Player.play-pause(); } }
+    }
+}
+
+// Shuffle · previous · play/pause · next · repeat.
+export component Controls inherits HorizontalLayout {
+    in property <bool> large;
+    private property <bool> enabled: Player.has-track;
+    alignment: center;
+    spacing: 0px;
+    VerticalLayout {
+        alignment: center;
+        IconButton {
+            icon: Icons.shuffle;
+            icon-size: large ? 28px : 20px;
+            size: large ? 48px : 40px;
+            enabled: root.enabled;
+            color: Player.shuffle ? Theme.accent : Theme.muted;
+            clicked => { Player.toggle-shuffle(); }
+        }
+    }
+    Rectangle { width: large ? 12px : 4px; }
+    VerticalLayout {
+        alignment: center;
+        IconButton {
+            icon: Icons.skip-previous;
+            icon-size: large ? 36px : 26px;
+            size: large ? 56px : 40px;
+            enabled: root.enabled;
+            clicked => { Player.previous(); }
+        }
+    }
+    Rectangle { width: large ? 16px : 6px; }
+    VerticalLayout {
+        alignment: center;
+        PlayPause { size: large ? 68px : 40px; }
+    }
+    Rectangle { width: large ? 16px : 6px; }
+    VerticalLayout {
+        alignment: center;
+        IconButton {
+            icon: Icons.skip-next;
+            icon-size: large ? 36px : 26px;
+            size: large ? 56px : 40px;
+            enabled: root.enabled && Player.has-next;
+            clicked => { Player.next(); }
+        }
+    }
+    Rectangle { width: large ? 12px : 4px; }
+    VerticalLayout {
+        alignment: center;
+        IconButton {
+            icon: Player.repeat == 2 ? Icons.repeat-one : Icons.repeat;
+            icon-size: large ? 28px : 20px;
+            size: large ? 48px : 40px;
+            enabled: root.enabled;
+            color: Player.repeat != 0 ? Theme.accent : Theme.muted;
+            clicked => { Player.cycle-repeat(); }
+        }
+    }
+}
+
+// Volume slider (Material slider look: 4px track, round thumb).
+component VolumeSlider inherits Rectangle {
+    height: 28px;
+    private property <length> inset: 8px;
+    private property <float> v: Player.volume / 100;
+    Rectangle {
+        x: inset;
+        width: parent.width - inset * 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.text.with-alpha(0.14);
+    }
+    Rectangle {
+        x: inset;
+        width: (parent.width - inset * 2) * v;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.text.with-alpha(0.7);
+    }
+    Rectangle {
+        x: inset + (parent.width - inset * 2) * v - 6px;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        background: Theme.text;
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                Player.set-volume(clamp((self.mouse-x - inset) / (parent.width - inset * 2), 0, 1) * 100);
+            }
+        }
+        moved => {
+            if (self.pressed) { Player.set-volume(clamp((self.mouse-x - inset) / (parent.width - inset * 2), 0, 1) * 100); }
+        }
+        scroll-event(e) => {
+            Player.set-volume(clamp(Player.volume + (e.delta-y > 0 ? 5 : -5), 0, 100));
+            accept
+        }
+    }
+}
+
+// Always-visible floating "glass" bar.
+export component PlayerBar inherits Rectangle {
+    in property <image> wave-top;
+    in property <image> wave-mid;
+    in property <image> wave-low;
+    in property <float> wave-f1;
+    in property <float> wave-f2;
+    height: 80px;
+    border-radius: Radius.panel;
+    clip: true;
+    // No backdrop blur in the software renderer: denser glass instead.
+    background: Theme.surface.mix(Theme.accent, 0.94).with-alpha(0.92);
+    // faint wave inside the glass
+    WaveStack {
+        width: parent.width;
+        height: parent.height;
+        top: wave-top;
+        mid: wave-mid;
+        low: wave-low;
+        f1: wave-f1;
+        f2: wave-f2;
+    }
+    Rectangle {
+        border-radius: Radius.panel;
+        border-width: 1px;
+        border-color: Theme.outline;
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        // Now playing
+        Rectangle {
+            horizontal-stretch: 3;
+            min-width: 190px;
+            if !Player.has-track: Txt {
+                x: 4px;
+                text: "Nothing playing";
+                font-size: 13px;
+                color: Theme.muted;
+            }
+            if Player.has-track: HorizontalLayout {
+                spacing: 14px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Cover {
+                        id: Player.id;
+                        size: 52px;
+                        radius: Radius.thumb;
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    Txt {
+                        text: Player.title;
+                        font-size: Type.title-small;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    Txt {
+                        text: Player.artist;
+                        font-size: 13px;
+                        color: Theme.muted;
+                        overflow: elide;
+                    }
+                }
+            }
+            if Player.has-track: TouchArea {
+                width: min(parent.width, 360px);
+                x: 0;
+                mouse-cursor: pointer;
+                clicked => { Player.now-playing-open = true; }
+            }
+        }
+        // Controls
+        VerticalLayout {
+            horizontal-stretch: 4;
+            alignment: center;
+            Controls { }
+            Rectangle {
+                height: 26px;
+                SeekBar {
+                    y: 2px;
+                }
+            }
+        }
+        // Extras
+        HorizontalLayout {
+            horizontal-stretch: 3;
+            alignment: end;
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: Icons.queue-music;
+                    color: Player.queue-open ? Theme.accent : Theme.muted;
+                    clicked => { Player.queue-open = !Player.queue-open; }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: Player.volume == 0 ? Icons.volume-off : (Player.volume < 50 ? Icons.volume-down : Icons.volume-up);
+                    color: Theme.muted;
+                    clicked => { Player.toggle-mute(); }
+                }
+            }
+            if Theme.win-width > 1180px: VerticalLayout {
+                alignment: center;
+                VolumeSlider { width: 110px; }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: Icons.open-in-full;
+                    icon-size: 20px;
+                    color: Theme.muted;
+                    enabled: Player.has-track;
+                    clicked => { Player.now-playing-open = true; }
+                }
+            }
+        }
+    }
+}
+
+// One row in the "Up next" lists (queue panel and Now Playing panel).
+export component QueueRow inherits Rectangle {
+    in property <TrackItem> track;
+    in property <int> index;
+    in property <bool> show-download;
+    in property <length> row-height: 48px;
+    private property <length> drag-dy;
+    private property <bool> dragging;
+    height: row-height;
+    z: dragging ? 10 : 0;
+    Rectangle {
+        y: drag-dy;
+        border-radius: Radius.control;
+        background: dragging ? Theme.surface-high : (touch.has-hover ? Theme.hover : transparent);
+        touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { Player.jump-to(index); }
+        }
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 0px;
+            spacing: 4px;
+            Rectangle {
+                width: 18px;
+                Icon {
+                    width: 18px;
+                    height: 18px;
+                    source: Icons.drag-indicator;
+                    colorize: Theme.muted;
+                }
+                TouchArea {
+                    mouse-cursor: grab;
+                    moved => {
+                        dragging = true;
+                        drag-dy = self.mouse-y - self.pressed-y;
+                    }
+                    pointer-event(e) => {
+                        if (e.kind == PointerEventKind.up && dragging) {
+                            Player.move-up-next(index, index + round(drag-dy / row-height));
+                            dragging = false;
+                            drag-dy = 0;
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Cover {
+                    id: track.id;
+                    size: 36px;
+                    radius: Radius.thumb;
+                }
+            }
+            Rectangle { width: 10px; }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Txt {
+                    text: track.title;
+                    font-size: 13px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+                Txt {
+                    text: track.artist;
+                    font-size: 12px;
+                    color: Theme.muted;
+                    overflow: elide;
+                }
+            }
+            @children
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    size: 32px;
+                    icon: Icons.close;
+                    icon-size: 18px;
+                    color: Theme.muted;
+                    clicked => { Player.remove-up-next(index); }
+                }
+            }
+        }
+    }
+}
+
+// Right-hand "Up next" panel of the shell.
+export component QueuePanel inherits Rectangle {
+    background: Theme.surface;
+    border-radius: Radius.panel;
+    border-width: 1px;
+    border-color: Theme.outline;
+    VerticalLayout {
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 8px;
+            padding-top: 12px;
+            padding-bottom: 8px;
+            spacing: 4px;
+            Txt {
+                horizontal-stretch: 1;
+                text: "Up next";
+                font-size: 17px;
+                font-weight: 700;
+                letter-spacing: -0.3px;
+            }
+            if Player.up-next.length > 0: Button {
+                kind: 3;
+                text: "Clear";
+                clicked => { Player.clear-up-next(); }
+            }
+            IconButton {
+                icon: Icons.close;
+                size: 36px;
+                icon-size: 20px;
+                color: Theme.muted;
+                clicked => { Player.queue-open = false; }
+            }
+        }
+        if Player.has-track: HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            padding-bottom: 8px;
+            Rectangle {
+                border-radius: Radius.control;
+                background: Theme.tint;
+                height: 60px;
+                HorizontalLayout {
+                    padding: 8px;
+                    spacing: 10px;
+                    Cover {
+                        id: Player.id;
+                        size: 44px;
+                        radius: Radius.thumb;
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Txt {
+                            text: Player.title;
+                            font-weight: 600;
+                            color: Theme.accent;
+                            overflow: elide;
+                        }
+                        Txt {
+                            text: Player.artist;
+                            font-size: Type.body-small;
+                            color: Theme.muted;
+                            overflow: elide;
+                        }
+                    }
+                    if Player.playing: VerticalLayout {
+                        alignment: center;
+                        Icon { width: 18px; height: 18px; source: Icons.graphic-eq; colorize: Theme.accent; }
+                    }
+                }
+            }
+        }
+        if Player.up-next.length == 0: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.queue-music;
+            title: "Nothing queued";
+            message: "Pick “Play next” or “Add to queue” from a song’s ⋯ menu.";
+        }
+        if Player.up-next.length > 0: Flickable {
+            vertical-stretch: 1;
+            content-height: qlist.preferred-height;
+            qlist := VerticalLayout {
+                alignment: start;
+                padding-left: 8px;
+                padding-right: 8px;
+                padding-bottom: 12px;
+                for t[i] in Player.up-next: QueueRow {
+                    track: t;
+                    index: i;
+                }
+            }
+        }
+    }
+}

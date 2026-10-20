@@ -1,0 +1,41 @@
+// Wave/aurora backdrop rendered by Rust (tiny-skia, src/visuals.rs) as three
+// stacked images: `top` above the wave crests, `mid` = the thin animated
+// strip the crests move through, `low` below them. A wave frame only replaces
+// `mid`, so the software renderer repaints just that strip. Opaque backdrops
+// arrive as RGB images (copied without blending).
+export component WaveStack inherits Rectangle {
+    in property <image> top;
+    in property <image> mid;
+    in property <image> low;
+    // `mid` may cover only [0, m1) of the width: the shell draws the rest of
+    // its strip as a separate piece (see app.slint).
+    in property <float> m1: 1.0;
+    // strip start / end as fractions of the height
+    in property <float> f1;
+    in property <float> f2;
+    // top and low overlap the strip by a pixel (drawn first, mid covers the
+    // seam), so rounding never leaves a gap.
+    Image {
+        y: 0;
+        width: root.width;
+        height: root.height * f1 + 1px;
+        source: top;
+        image-fit: fill;
+    }
+    Image {
+        y: root.height * f2 - 1px;
+        width: root.width;
+        height: root.height * (1 - f2) + 1px;
+        source: low;
+        image-fit: fill;
+    }
+    Image {
+        x: 0;
+        y: root.height * f1;
+        width: root.width * m1;
+        height: root.height * (f2 - f1);
+        source: mid;
+        image-fit: fill;
+    }
+
+}

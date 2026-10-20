@@ -1,0 +1,148 @@
+// Colours, fonts and shared state globals. Colours come from Rust
+// (cover palette + desktop scheme), mirroring app/lib/theme.dart.
+
+import "../assets/fonts/PlusJakartaSans-Regular.ttf";
+import "../assets/fonts/PlusJakartaSans-Medium.ttf";
+import "../assets/fonts/PlusJakartaSans-SemiBold.ttf";
+import "../assets/fonts/PlusJakartaSans-Bold.ttf";
+import "../assets/fonts/PlusJakartaSans-ExtraBold.ttf";
+
+export global Theme {
+    in-out property <bool> dark: true;
+    in-out property <color> background: #0B0C10;
+    in-out property <color> surface: #15161C;
+    in-out property <color> surface-high: #1F2029;
+    in-out property <color> outline: #ffffff1f;
+    in-out property <color> text: #F3F3F7;
+    in-out property <color> muted: #9A9BA8;
+    in-out property <color> accent: #8B7CFF;
+    in-out property <color> on-accent: #ffffff;
+    in-out property <color> error: #FFB4AB;
+    out property <color> accent-soft: accent.with-alpha(0.16);
+    out property <color> hover: text.with-alpha(0.05);
+    // Window width, for the responsive breakpoints of the Flutter shell.
+    in-out property <length> win-width: 1440px;
+    in-out property <length> win-height: 900px;
+    out property <bool> wide-rows: win-width > 1150px;
+    out property <string> font: "Plus Jakarta Sans";
+    // Neutral fill for selected/hovered things that are not "the" active item.
+    out property <color> tint: text.with-alpha(dark ? 0.07 : 0.06);
+}
+
+// Corner radii, chosen per role instead of one radius everywhere.
+export global Radius {
+    out property <length> thumb: 4px;     // list artwork
+    out property <length> cover: 6px;     // card artwork
+    out property <length> hero: 10px;     // big artwork (playlist, now playing)
+    out property <length> control: 8px;   // buttons, fields, rows
+    out property <length> panel: 14px;    // sidebar, content, player bar
+}
+
+// Material 3 type scale (sizes in logical px, as Flutter uses).
+export global Type {
+    out property <length> display-medium: 45px;
+    out property <length> display-small: 36px;
+    out property <length> headline-medium: 28px;
+    out property <length> headline-small: 24px;
+    out property <length> title-large: 22px;
+    out property <length> title-medium: 16px;
+    out property <length> title-small: 14px;
+    out property <length> body-large: 16px;
+    out property <length> body-medium: 14px;
+    out property <length> body-small: 12px;
+    out property <length> label-large: 14px;
+    out property <length> label-medium: 12px;
+    out property <length> label-small: 11px;
+}
+
+export struct TrackItem {
+    id: string,
+    title: string,
+    artist: string,
+    album: string,
+    duration: string,
+    downloaded: bool,
+}
+
+export struct PlaylistItem {
+    id: int,
+    name: string,
+    subtitle: string,
+    discover: bool,
+    covers: [string],
+}
+
+// A card in a horizontal home row or a library grid.
+// kind: 0 track, 1 playlist, 2 artist, 3 album, 4 "new playlist".
+export struct CardItem {
+    kind: int,
+    id: string,
+    title: string,
+    subtitle: string,
+    downloadable: bool,
+    pid: int,
+    covers: [string],
+    discover: bool,
+}
+
+export struct SectionItem {
+    key: string,
+    title: string,
+    subtitle: string,
+    loading: bool,
+    cards: [CardItem],
+}
+
+// One row of the downloads page. kind: 0 section header, 1 download, 2 tip.
+export struct DownloadRow {
+    kind: int,
+    id: string,
+    video-id: string,
+    title: string,
+    artist: string,
+    status: string,
+    progress: float,
+    status-text: string,
+    selected: bool,
+    selectable: bool,
+    section: string,
+    // section header: 0 none picked, 1 some, 2 all
+    picked: int,
+}
+
+export struct LyricLine {
+    text: string,
+    time-ms: int,
+}
+
+export struct MenuEntry {
+    icon: image,
+    label: string,
+    subtitle: string,
+    enabled: bool,
+    checked: bool,
+    divider: bool,
+}
+
+export struct DeviceItem {
+    id: string,
+    name: string,
+    online: bool,
+    detail: string,
+    error: bool,
+}
+
+// One song of a YouTube playlist preview. status: 0 in playlist, 1 in library, 2 will download.
+export struct PreviewItem {
+    id: string,
+    title: string,
+    artist: string,
+    status: int,
+}
+
+// Song covers served by the backend, decoded at display size by Rust.
+// `rev` changes whenever new covers arrive so bindings re-evaluate.
+export global Covers {
+    in-out property <int> rev;
+    pure callback get(/* video id */ string, /* size */ length, /* radius */ length, int) -> image;
+}

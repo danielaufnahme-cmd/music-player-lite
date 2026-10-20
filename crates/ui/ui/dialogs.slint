@@ -1,0 +1,530 @@
+// Dialogs (Material AlertDialog look), context menu and snackbar.
+import { Theme, Type, Radius, Covers, PlaylistItem, MenuEntry, DeviceItem, PreviewItem } from "theme.slint";
+import { Icons } from "icons.slint";
+import { Ui, Lib } from "state.slint";
+import { Txt, Icon, IconButton, Button, Field, Checkbox, Switch, Cover, PlaylistCover, Progress } from "widgets.slint";
+
+component DialogCard inherits Rectangle {
+    in property <string> title;
+    in property <image> title-icon;
+    in property <bool> has-title-icon;
+    in property <length> content-width: 380px;
+    width: min(content-width + 48px, Theme.win-width - 32px);
+    height: min(col.preferred-height, Theme.win-height - 48px);
+    background: Theme.surface;
+    border-radius: Radius.panel;
+    border-width: 1px;
+    border-color: Theme.outline;
+    // swallow clicks
+    TouchArea { }
+    col := VerticalLayout {
+        padding: 24px;
+        spacing: 16px;
+        HorizontalLayout {
+            spacing: 12px;
+            if has-title-icon: VerticalLayout {
+                alignment: center;
+                Icon { width: 20px; height: 20px; source: title-icon; colorize: Theme.muted; }
+            }
+            Txt {
+                horizontal-stretch: 1;
+                text: title;
+                font-size: 20px;
+                font-weight: 700;
+                letter-spacing: -0.4px;
+                wrap: word-wrap;
+            }
+        }
+        @children
+    }
+}
+
+component Actions inherits HorizontalLayout {
+    alignment: end;
+    spacing: 8px;
+    padding-top: 8px;
+}
+
+component PreviewChip inherits Rectangle {
+    in property <int> status;
+    private property <color> c: status == 0 ? Theme.accent : status == 1 ? #2FBF71 : Theme.muted;
+    border-radius: 4px;
+    background: c.with-alpha(status == 2 ? 0.10 : 0.16);
+    width: row.preferred-width;
+    height: 24px;
+    row := HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        spacing: 5px;
+        VerticalLayout {
+            alignment: center;
+            Icon {
+                width: 14px;
+                height: 14px;
+                source: status == 0 ? Icons.playlist-add-check : status == 1 ? Icons.check-circle : Icons.download;
+                colorize: c;
+            }
+        }
+        Txt {
+            text: status == 0 ? "Already in this playlist" : status == 1 ? "In library" : "Will download";
+            font-size: Type.label-small;
+            font-weight: 700;
+            color: c;
+        }
+    }
+}
+
+// Link field + preview list for importing a YouTube Music playlist.
+component ImportField inherits VerticalLayout {
+    spacing: 14px;
+    url := Field {
+        label: "YouTube Music playlist link";
+        text: Ui.import-url;
+        hint: "https://music.youtube.com/playlist?list=…";
+        prefix: Icons.link;
+        has-prefix: true;
+        suffix: Icons.content-paste;
+        has-suffix: true;
+        edited(t) => { Ui.import-url-edited(t); }
+        suffix-clicked => { Ui.paste-url(); }
+    }
+    if Ui.import-state == 0: Txt {
+        text: Ui.import-into
+            ? "Songs already in this playlist are skipped, songs you have are added right away, only the rest is downloaded."
+            : "Songs you already have are added right away. Only the rest is downloaded.";
+        font-size: Type.body-small;
+        color: Theme.muted;
+        wrap: word-wrap;
+    }
+    if Ui.import-state == 1: VerticalLayout {
+        spacing: 12px;
+        HorizontalLayout { alignment: start; Rectangle { width: 260px; height: 16px; border-radius: 8px; background: Theme.surface-high; } }
+        for i in 4: HorizontalLayout {
+            spacing: 12px;
+            Rectangle { width: 36px; height: 36px; border-radius: 6px; background: Theme.surface-high; }
+            VerticalLayout { alignment: center; Rectangle { height: 14px; border-radius: 8px; background: Theme.surface-high; } }
+            Rectangle { width: 40px; }
+            VerticalLayout { alignment: center; Rectangle { width: 80px; height: 20px; border-radius: 10px; background: Theme.surface-high; } }
+        }
+    }
+    if Ui.import-state == 2: Rectangle {
+        border-radius: Radius.control;
+        background: Theme.error.with-alpha(0.10);
+        HorizontalLayout {
+            padding: 12px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Icon { width: 18px; height: 18px; source: Icons.error-outline; colorize: Theme.error; }
+            }
+            Txt { horizontal-stretch: 1; text: Ui.import-error; color: Theme.error; wrap: word-wrap; }
+        }
+    }
+    if Ui.import-state == 3: VerticalLayout {
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Icon { width: 18px; height: 18px; source: Icons.queue-music; colorize: Theme.accent; }
+            }
+            Txt { horizontal-stretch: 1; text: Ui.import-summary; font-weight: 600; wrap: word-wrap; }
+        }
+        Rectangle {
+            height: min(280px, Ui.import-items.length * 46px + 12px);
+            border-radius: Radius.control;
+            background: Theme.surface-high.with-alpha(0.45);
+            border-width: 1px;
+            border-color: Theme.outline;
+            Flickable {
+                content-height: plist.preferred-height;
+                plist := VerticalLayout {
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    alignment: start;
+                    for t[i] in Ui.import-items: HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        spacing: 10px;
+                        height: 46px;
+                        opacity: t.status == 0 ? 0.55 : 1;
+                        Txt { width: 26px; text: i + 1; horizontal-alignment: right; font-size: Type.body-small; color: Theme.muted; }
+                        VerticalLayout { alignment: center; Cover { id: t.id; size: 36px; radius: 6px; } }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            Txt { text: t.title; overflow: elide; }
+                            Txt { text: t.artist; font-size: Type.body-small; color: Theme.muted; overflow: elide; }
+                        }
+                        VerticalLayout { alignment: center; PreviewChip { status: t.status; } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component Dialogs inherits Rectangle {
+    visible: Ui.dialog != "";
+    background: #0000008a;
+    TouchArea {
+        clicked => { Ui.dialog-cancel(); }
+    }
+    if Ui.dialog == "confirm": DialogCard {
+        title: Ui.dlg-title;
+        Txt { text: Ui.dlg-message; wrap: word-wrap; color: Theme.text; }
+        Actions {
+            Button { kind: 3; text: "Cancel"; clicked => { Ui.dialog-cancel(); } }
+            Button { text: Ui.dlg-confirm; clicked => { Ui.dialog-confirm(); } }
+        }
+    }
+    if Ui.dialog == "text": DialogCard {
+        title: Ui.dlg-title;
+        tf := Field {
+            text: Ui.dlg-text;
+            hint: Ui.dlg-hint;
+            edited(t) => { Ui.dlg-text = t; }
+            accepted => { Ui.dialog-confirm(); }
+            init => { self.focus-input(); self.select-all(); }
+        }
+        Actions {
+            Button { kind: 3; text: "Cancel"; clicked => { Ui.dialog-cancel(); } }
+            Button { text: Ui.dlg-confirm; clicked => { Ui.dialog-confirm(); } }
+        }
+    }
+    if Ui.dialog == "remove-track": DialogCard {
+        title: "Remove from library?";
+        content-width: 400px;
+        Txt { text: Ui.dlg-message; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 4px;
+            Checkbox {
+                state: Ui.dlg-check ? 2 : 0;
+                toggled => { Ui.dlg-check = !Ui.dlg-check; }
+            }
+            Txt {
+                text: "Also delete the MP3 file from disk";
+                font-size: Type.body-large;
+                TouchArea { clicked => { Ui.dlg-check = !Ui.dlg-check; } }
+            }
+        }
+        Actions {
+            Button { kind: 3; text: "Cancel"; clicked => { Ui.dialog-cancel(); } }
+            Button { text: "Remove"; clicked => { Ui.dialog-confirm(); } }
+        }
+    }
+    if Ui.dialog == "picker": DialogCard {
+        title: "Add to playlist";
+        content-width: 400px;
+        Flickable {
+            height: 360px;
+            content-height: pk.preferred-height;
+            pk := VerticalLayout {
+                alignment: start;
+                for p[i] in Ui.picker-items: Rectangle {
+                    height: 56px;
+                    border-radius: Radius.control;
+                    background: ptouch.has-hover ? Theme.hover : transparent;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        spacing: 16px;
+                        VerticalLayout {
+                            alignment: center;
+                            if p.id < 0: Rectangle {
+                                width: 44px;
+                                height: 44px;
+                                border-radius: Radius.thumb;
+                                border-width: 1px;
+                                border-color: Theme.text.with-alpha(0.16);
+                                Icon { width: 20px; height: 20px; source: Icons.add; colorize: Theme.muted; }
+                            }
+                            if p.id >= 0: PlaylistCover { covers: p.covers; size: 44px; radius: Radius.thumb; }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Txt { text: p.name; font-size: Type.body-large; overflow: elide; }
+                            if p.subtitle != "": Txt { text: p.subtitle; color: Theme.muted; }
+                        }
+                    }
+                    ptouch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Ui.picker-chosen(i); }
+                    }
+                }
+            }
+        }
+        Actions {
+            Button { kind: 3; text: "Cancel"; clicked => { Ui.dialog-cancel(); } }
+        }
+    }
+    if Ui.dialog == "new-playlist": DialogCard {
+        title: "New playlist";
+        content-width: 540px;
+        name := Field {
+            label: "Name";
+            text: Ui.np-name;
+            hint: Ui.np-import ? "Uses the YouTube playlist name if empty" : "My playlist";
+            edited(t) => { Ui.np-name-edited(t); }
+            accepted => { Ui.dialog-confirm(); }
+            init => { self.focus-input(); }
+        }
+        if Ui.dlg-check: Rectangle {
+            border-radius: Radius.control;
+            background: Theme.tint;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                spacing: 16px;
+                VerticalLayout {
+                    alignment: center;
+                    Icon { source: Icons.playlist-add; colorize: Ui.np-import ? Theme.accent : Theme.muted; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    Txt { text: "Import from YouTube Music"; font-size: Type.body-large; }
+                    Txt { text: "Paste a playlist or album link. Missing songs download automatically."; font-size: Type.body-small; color: Theme.muted; wrap: word-wrap; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Switch {
+                        on: Ui.np-import;
+                        toggled => { Ui.np-import = !Ui.np-import; Ui.import-url-edited(Ui.import-url); }
+                    }
+                }
+            }
+            TouchArea {
+                z: -1;
+                clicked => { Ui.np-import = !Ui.np-import; Ui.import-url-edited(Ui.import-url); }
+            }
+        }
+        if Ui.np-import: ImportField { }
+        Actions {
+            Button { kind: 3; text: "Cancel"; clicked => { Ui.dialog-cancel(); } }
+            Button {
+                text: Ui.import-action;
+                icon: Ui.np-import ? Icons.download : Icons.add;
+                has-icon: true;
+                enabled: Ui.import-can-submit;
+                clicked => { Ui.dialog-confirm(); }
+            }
+        }
+    }
+    if Ui.dialog == "import": DialogCard {
+        title: Ui.dlg-title;
+        content-width: 540px;
+        ImportField { }
+        Actions {
+            Button { kind: 3; text: "Cancel"; clicked => { Ui.dialog-cancel(); } }
+            Button {
+                text: Ui.import-action;
+                icon: Icons.download;
+                has-icon: true;
+                enabled: Ui.import-can-submit;
+                clicked => { Ui.dialog-confirm(); }
+            }
+        }
+    }
+    if Ui.dialog == "devices": DialogCard {
+        title: "Devices";
+        title-icon: Icons.devices;
+        has-title-icon: true;
+        content-width: 440px;
+        Txt {
+            text: "Sync songs and playlists with your other computers on the same Tailscale network.";
+            font-size: Type.body-small;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        if Ui.dev-state == 3: Txt {
+            text: "This backend does not support device sync yet. Update Music Player Lite on this computer.";
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+        if Ui.dev-state == 0 || Ui.dev-state == 2: Txt {
+            height: 80px;
+            text: Ui.dev-state == 2 ? Ui.dev-error : "Loading…";
+            color: Theme.muted;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        if Ui.dev-state == 1: VerticalLayout {
+            spacing: 6px;
+            Rectangle {
+                border-radius: Radius.control;
+                background: Theme.tint;
+                HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 8px;
+                    padding-top: 14px;
+                    padding-bottom: 14px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Txt { text: Ui.dev-this; font-size: Type.body-small; color: Theme.muted; overflow: elide; }
+                        Txt { text: Ui.dev-code; font-size: Type.headline-medium; font-weight: 800; letter-spacing: 6px; }
+                        Txt { text: "Type this code on your other device"; font-size: Type.body-small; color: Theme.muted; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        HorizontalLayout {
+                            IconButton { icon: Icons.content-copy; color: Theme.muted; clicked => { Ui.copy-code(); } }
+                            IconButton { icon: Icons.refresh; color: Theme.muted; clicked => { Ui.new-code(); } }
+                        }
+                    }
+                }
+            }
+            Rectangle { height: 14px; }
+            Txt { text: "Paired devices"; font-size: 13px; font-weight: 700; }
+            if Ui.devices.length == 0: Txt {
+                text: "None yet. Enter the code your other computer shows below.";
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+            for d in Ui.devices: HorizontalLayout {
+                spacing: 14px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: d.online ? #3DDC84 : Theme.muted.with-alpha(0.4);
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Txt { text: d.name; font-weight: 600; overflow: elide; }
+                    Txt { text: d.detail; font-size: Type.body-small; color: d.error ? Theme.error : Theme.muted; overflow: elide; }
+                }
+                IconButton { icon: Icons.link-off; icon-size: 20px; color: Theme.muted; clicked => { Ui.remove-device(d.id); } }
+            }
+            Rectangle { height: 10px; }
+            Txt { text: "Add a device"; font-size: 13px; font-weight: 700; }
+            HorizontalLayout {
+                spacing: 10px;
+                Field {
+                    text: Ui.pair-code;
+                    hint: "Code from the other device";
+                    font-weight: 700;
+                    letter-spacing: 4px;
+                    enabled: !Ui.pairing;
+                    error: Ui.pair-error;
+                    edited(t) => { Ui.pair-code-edited(t); }
+                    accepted => { Ui.pair(); }
+                }
+                VerticalLayout {
+                    alignment: start;
+                    padding-top: 4px;
+                    Button { kind: 1; text: "Add"; busy: Ui.pairing; clicked => { Ui.pair(); } }
+                }
+            }
+            if Ui.sync-progress-visible: VerticalLayout {
+                padding-top: 8px;
+                spacing: 6px;
+                if Lib.syncing: Progress { thickness: 4px; value: Ui.sync-fraction; }
+                Txt {
+                    text: Ui.sync-label;
+                    font-size: Type.body-small;
+                    color: Ui.sync-label-error ? Theme.error : Theme.muted;
+                    wrap: word-wrap;
+                }
+            }
+        }
+        Actions {
+            Button { kind: 3; text: "Close"; clicked => { Ui.dialog-cancel(); } }
+            Button {
+                text: Lib.syncing ? "Syncing…" : "Sync now";
+                icon: Icons.sync;
+                has-icon: true;
+                enabled: Lib.sync-available == 1 && !Lib.syncing && Ui.devices.length > 0;
+                clicked => { Ui.sync-now(); }
+            }
+        }
+    }
+}
+
+// Popup menu at (Ui.menu-x, Ui.menu-y).
+export component Menu inherits Rectangle {
+    visible: Ui.menu-open;
+    TouchArea {
+        clicked => { Ui.menu-open = false; }
+    }
+    box := Rectangle {
+        x: clamp(Ui.menu-x, 8px, root.width - self.width - 8px);
+        y: clamp(Ui.menu-y, 8px, root.height - self.height - 8px);
+        width: Ui.menu-width;
+        height: col.preferred-height;
+        background: Theme.surface-high;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Theme.outline;
+        col := VerticalLayout {
+            padding: 4px;
+            for m[i] in Ui.menu-items: Rectangle {
+                height: m.divider ? 9px : (m.subtitle != "" ? 48px : 36px);
+                border-radius: 6px;
+                background: !m.divider && m.enabled && mt.has-hover ? Theme.text.with-alpha(0.08) : transparent;
+                if m.divider: Rectangle { height: 1px; background: Theme.outline; }
+                if !m.divider: HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 10px;
+                    if m.icon.width > 0: VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            width: 18px;
+                            height: 18px;
+                            source: m.icon;
+                            colorize: m.enabled ? Theme.text : Theme.muted;
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Txt { text: m.label; color: m.enabled ? Theme.text : Theme.muted; overflow: elide; }
+                        if m.subtitle != "": Txt { text: m.subtitle; font-size: 11.5px; color: Theme.muted; overflow: elide; }
+                    }
+                    if m.checked: VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            width: 18px;
+                            height: 18px;
+                            source: Icons.check;
+                            colorize: Theme.accent;
+                        }
+                    }
+                }
+                mt := TouchArea {
+                    enabled: !m.divider && m.enabled;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Ui.menu-open = false;
+                        Ui.menu-selected(i);
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component Snackbar inherits Rectangle {
+    width: min(460px, Theme.win-width - 32px);
+    height: txt.preferred-height + 28px;
+    background: Theme.surface-high;
+    border-radius: Radius.control;
+    border-width: 1px;
+    border-color: Theme.outline;
+    txt := Txt {
+        x: 16px;
+        width: parent.width - 32px;
+        text: Ui.snack;
+        wrap: word-wrap;
+    }
+}

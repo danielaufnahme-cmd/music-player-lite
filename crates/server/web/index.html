@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d12">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Music Player Lite">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<title>Music Player Lite – Add music</title>
+<style>
+:root {
+  --bg: #0d0d12;
+  --surface: #16161e;
+  --surface-2: #1f1f2a;
+  --surface-3: #2a2a37;
+  --line: rgba(255, 255, 255, 0.07);
+  --text: #ededf3;
+  --muted: #9b9bb0;
+  --faint: #6c6c80;
+  --accent: #8b7cf6;
+  --accent-2: #b3a8ff;
+  --accent-ink: #120f24;
+  --ok: #5ee39a;
+  --warn: #ffc56b;
+  --bad: #ff7a7a;
+  --radius: 22px;
+  --radius-sm: 14px;
+  --pad: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.4;
+  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+.bg {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 60% at 15% -10%, rgba(139, 124, 246, 0.35), transparent 60%),
+    radial-gradient(90% 50% at 110% 10%, rgba(94, 196, 255, 0.16), transparent 60%),
+    var(--bg);
+}
+.bg svg { position: absolute; left: 0; right: 0; top: 150px; width: 100%; height: 220px; opacity: 0.55; }
+.wave { animation: drift 14s ease-in-out infinite alternate; transform-origin: center; }
+.wave.b { animation-duration: 19s; animation-direction: alternate-reverse; }
+@keyframes drift { from { transform: translateX(-4%); } to { transform: translateX(4%); } }
+@media (prefers-reduced-motion: reduce) { .wave, .spin, .skel { animation: none !important; } }
+
+main {
+  position: relative; z-index: 1;
+  max-width: 560px; margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 18px) calc(env(safe-area-inset-right) + var(--pad))
+           calc(env(safe-area-inset-bottom) + 40px) calc(env(safe-area-inset-left) + var(--pad));
+}
+header { display: flex; align-items: center; gap: 12px; margin: 6px 2px 18px; }
+.logo {
+  width: 44px; height: 44px; border-radius: 14px; flex: none;
+  background: linear-gradient(135deg, #9b8cff, #5b46d6);
+  display: grid; place-items: center; box-shadow: 0 8px 24px rgba(91, 70, 214, 0.45);
+}
+.logo svg { width: 24px; height: 24px; }
+header h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted);
+  background: rgba(255,255,255,0.05); border: 1px solid var(--line); padding: 6px 10px; border-radius: 999px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.dot.ok { background: var(--ok); box-shadow: 0 0 10px rgba(94, 227, 154, 0.7); }
+.dot.bad { background: var(--bad); }
+
+.card {
+  background: linear-gradient(180deg, rgba(31, 31, 42, 0.92), rgba(22, 22, 30, 0.92));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 14px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px);
+}
+.card h2 { margin: 0 0 4px; font-size: 18px; letter-spacing: -0.01em; }
+.hint { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+.input-row { display: flex; gap: 8px; }
+input[type=text], input[type=url], select {
+  flex: 1; min-width: 0; width: 100%;
+  font: inherit; font-size: 16px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 14px 14px; outline: none; appearance: none; -webkit-appearance: none;
+}
+select {
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 14px) 50%; background-size: 6px 6px; background-repeat: no-repeat;
+  padding-right: 36px;
+}
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 124, 246, 0.25); }
+input::placeholder { color: var(--faint); }
+button {
+  font: inherit; font-weight: 600; border: 0; cursor: pointer; color: var(--text);
+  border-radius: var(--radius-sm); min-height: 48px; padding: 0 16px;
+  background: var(--surface-3); transition: transform 0.12s ease, background 0.2s ease, opacity 0.2s;
+}
+button:active { transform: scale(0.97); }
+button:disabled { opacity: 0.55; cursor: default; transform: none; }
+.primary:disabled { opacity: 1; background: var(--surface-3); color: var(--muted); }
+.primary { background: linear-gradient(135deg, var(--accent-2), var(--accent)); color: var(--accent-ink); }
+.ghost { background: transparent; border: 1px solid var(--line); }
+.wide { width: 100%; margin-top: 14px; font-size: 17px; min-height: 54px; }
+.small { min-height: 36px; padding: 0 12px; font-size: 14px; border-radius: 10px; }
+
+.song { display: flex; gap: 14px; align-items: center; }
+.cover {
+  width: 96px; height: 96px; border-radius: 16px; flex: none; object-fit: cover;
+  background: var(--surface-3); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.cover.big { width: 116px; height: 116px; }
+.meta { min-width: 0; }
+.meta .title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.meta .sub { color: var(--muted); font-size: 14px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 999px; margin-top: 8px; }
+.badge.ok { background: rgba(94, 227, 154, 0.14); color: var(--ok); }
+.badge.new { background: rgba(139, 124, 246, 0.18); color: var(--accent-2); }
+.badge.warn { background: rgba(255, 197, 107, 0.14); color: var(--warn); }
+
+.summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.modes { display: grid; gap: 8px; margin-top: 16px; }
+.mode {
+  display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 14px; min-height: 0;
+  background: var(--surface); border: 1.5px solid var(--line); border-radius: 16px; font-weight: 500;
+}
+.mode .ico { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; flex: none; background: var(--surface-3); }
+.mode .ico svg { width: 20px; height: 20px; }
+.mode b { display: block; font-size: 16px; }
+.mode span { color: var(--muted); font-size: 13px; }
+.mode[aria-pressed=true] { border-color: var(--accent); background: rgba(139, 124, 246, 0.1); }
+.mode[aria-pressed=true] .ico { background: var(--accent); color: var(--accent-ink); }
+.mode-extra { margin: 2px 0 6px; padding: 0 2px; }
+.mode-extra label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px 4px; }
+
+.list { margin-top: 14px; border-top: 1px solid var(--line); }
+.row { display: flex; gap: 12px; align-items: center; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+.row img { width: 44px; height: 44px; border-radius: 10px; object-fit: cover; flex: none; background: var(--surface-3); }
+.row .meta { flex: 1; }
+.row .meta .title { font-size: 15px; font-weight: 600; -webkit-line-clamp: 1; }
+.row .meta .sub { font-size: 13px; }
+.chip { font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 999px; white-space: nowrap; flex: none; }
+.chip.ok { color: var(--ok); background: rgba(94, 227, 154, 0.12); }
+.chip.new { color: var(--accent-2); background: rgba(139, 124, 246, 0.14); }
+.chip.run { color: #9fd9ff; background: rgba(94, 196, 255, 0.12); }
+.chip.bad { color: var(--bad); background: rgba(255, 122, 122, 0.12); }
+.chip.dim { color: var(--muted); background: rgba(255, 255, 255, 0.06); }
+.bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-top: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, var(--accent), #5ec4ff); transition: width 0.4s ease; }
+.err-line { color: var(--bad); font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.more { color: var(--muted); font-size: 13px; text-align: center; padding: 10px 0 0; }
+
+.choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.choice button { min-height: 76px; flex-direction: column; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.choice small { color: var(--muted); font-weight: 500; font-size: 12px; }
+
+.notice { display: flex; gap: 12px; align-items: flex-start; }
+.notice .ico { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; flex: none; background: rgba(255, 122, 122, 0.14); color: var(--bad); }
+.notice .ico.ok { background: rgba(94, 227, 154, 0.14); color: var(--ok); }
+.notice p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+
+.progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.progress-head .count { color: var(--muted); font-size: 14px; white-space: nowrap; }
+.big-bar { height: 8px; margin: 12px 0 4px; }
+
+.skel { background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 40%, var(--surface-2) 80%); background-size: 200% 100%; animation: shimmer 1.3s linear infinite; border-radius: 10px; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.spin { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,0.25); border-top-color: currentColor; animation: rot 0.8s linear infinite; display: inline-block; vertical-align: -3px; }
+@keyframes rot { to { transform: rotate(360deg); } }
+
+.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--faint); margin: 22px 4px 8px; font-weight: 700; }
+.recent .row:last-child { border-bottom: 0; }
+.empty { color: var(--faint); font-size: 14px; padding: 6px 2px; }
+.offline { position: sticky; top: calc(env(safe-area-inset-top) + 6px); z-index: 5; margin-bottom: 12px; padding: 10px 14px; border-radius: 14px; background: rgba(255, 122, 122, 0.15); color: #ffd0d0; font-size: 14px; border: 1px solid rgba(255, 122, 122, 0.25); }
+.toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 20px); transform: translate(-50%, 20px); opacity: 0; transition: all 0.25s ease; z-index: 10;
+  background: #2b2b38; color: var(--text); padding: 12px 18px; border-radius: 14px; font-size: 14px; box-shadow: 0 12px 30px rgba(0,0,0,0.4); max-width: calc(100% - 32px); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="bg" aria-hidden="true">
+  <svg viewBox="0 0 1200 220" preserveAspectRatio="none">
+    <path class="wave" d="M-100 120 C 150 60, 350 180, 600 120 S 1050 60, 1300 120" fill="none" stroke="rgba(155,140,255,0.55)" stroke-width="2"/>
+    <path class="wave b" d="M-100 150 C 200 100, 400 200, 650 140 S 1000 90, 1300 150" fill="none" stroke="rgba(94,196,255,0.35)" stroke-width="2"/>
+    <path class="wave" d="M-100 175 C 250 140, 450 215, 700 165 S 1050 130, 1300 175" fill="none" stroke="rgba(155,140,255,0.25)" stroke-width="2"/>
+  </svg>
+</div>
+
+<main>
+  <header>
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="#fff"><rect x="3" y="9.5" width="2.6" height="5" rx="1.3"/><rect x="7.4" y="6.5" width="2.6" height="11" rx="1.3"/><rect x="11.8" y="3.5" width="2.6" height="17" rx="1.3"/><rect x="16.2" y="7" width="2.6" height="10" rx="1.3"/><rect x="20.6" y="10" width="2.2" height="4" rx="1.1"/></svg>
+    </div>
+    <div>
+      <h1>Music Player Lite</h1>
+      <p>Add music to your library</p>
+    </div>
+    <div class="status" id="status"><span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
+  </header>
+
+  <div class="offline" id="offline" hidden>Can't reach your PC. Make sure it's on and Tailscale is connected.</div>
+
+  <section class="card" id="linkCard">
+    <h2>Paste a link</h2>
+    <p class="hint">A song, playlist or album from YouTube Music or YouTube.</p>
+    <form class="input-row" id="linkForm" autocomplete="off">
+      <input type="url" id="link" inputmode="url" placeholder="https://music.youtube.com/…" aria-label="YouTube or YouTube Music link" enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button type="button" id="pasteBtn" class="ghost" aria-label="Paste from clipboard">Paste</button>
+    </form>
+  </section>
+
+  <section id="stage" aria-live="polite"></section>
+
+  <div class="section-title">Recent downloads</div>
+  <section class="card recent" id="recent"><div class="empty">Nothing downloaded yet.</div></section>
+</main>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------- helpers
+const $ = (id) => document.getElementById(id);
+const stage = $("stage");
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) node.append(c.nodeType ? c : document.createTextNode(String(c)));
+  return node;
+}
+
+function icon(name) {
+  const paths = {
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    list: '<path d="M4 6h11M4 12h11M4 18h7M18 15v6M15 18h6"/>',
+    down: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    alert: '<path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/>',
+    retry: '<path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.7M20 4v4.7h-4.7M20 12a8 8 0 0 1-13.7 5.6L4 15.3M4 20v-4.7h4.7"/>',
+  };
+  const span = document.createElement("span");
+  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">${paths[name] || ""}</svg>`;
+  return span.firstElementChild;
+}
+
+function fmtDuration(sec) {
+  if (!sec) return "";
+  const m = Math.floor(sec / 60), s = String(sec % 60).padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function cover(videoId, cls = "cover") {
+  const img = el("img", { class: cls, alt: "", loading: "lazy", decoding: "async" });
+  if (videoId) img.src = `/api/tracks/${encodeURIComponent(videoId)}/cover`;
+  img.addEventListener("error", () => { img.removeAttribute("src"); });
+  return img;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2800);
+}
+
+class ApiError extends Error {}
+
+async function api(path, options = {}) {
+  let res;
+  try {
+    res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  } catch {
+    setOnline(false);
+    throw new ApiError("Can't reach your PC. Make sure it's on and Tailscale is connected.");
+  }
+  setOnline(true);
+  let body = null;
+  try { body = await res.json(); } catch { /* empty body */ }
+  if (!res.ok) throw new ApiError((body && body.error) || `Something went wrong (${res.status})`);
+  return body;
+}
+
+// ------------------------------------------------------- connection state
+function setOnline(ok) {
+  $("offline").hidden = ok;
+  $("statusDot").className = "dot " + (ok ? "ok" : "bad");
+  $("statusText").textContent = ok ? "PC online" : "Offline";
+}
+
+async function checkHealth() {
+  try {
+    const h = await api("/api/health");
+    if (h.worker !== "running") {
+      $("statusDot").className = "dot bad";
+      $("statusText").textContent = "Starting…";
+    }
+  } catch { /* setOnline already shows the problem */ }
+}
+
+// ------------------------------------------------------------ downloads
+// Live state of every download we know about, by download id.
+const downloads = new Map();
+// The current job (what the user just submitted), shown as a progress card.
+let job = null;
+
+function applyDownload(d) {
+  downloads.set(d.id, d);
+  if (job) renderJob();
+  scheduleRecent();
+}
+
+async function loadDownloads() {
+  try {
+    const list = await api("/api/downloads?limit=60");
+    downloads.clear();
+    for (const d of list) downloads.set(d.id, d);
+    if (job) renderJob();
+    renderRecent();
+  } catch { /* offline banner covers it */ }
+}
+
+function connectEvents() {
+  if (!("EventSource" in window)) return;
+  const es = new EventSource("/api/downloads/events");
+  es.addEventListener("download", (e) => { try { applyDownload(JSON.parse(e.data)); } catch { /* ignore */ } });
+  es.addEventListener("resync", loadDownloads);
+  es.addEventListener("open", () => { setOnline(true); loadDownloads(); });
+  es.addEventListener("error", () => { if (es.readyState === EventSource.CLOSED) setTimeout(connectEvents, 3000); });
+}
+
+
+function statusChip(d, inLibrary, skipped) {
+  if (inLibrary && (!d || d.status === "skipped")) return el("span", { class: "chip ok", text: "In library" });
+  if (!d) return el("span", { class: "chip dim", text: skipped ? "Already there" : "Waiting" });
+  switch (d.status) {
+    case "done": return el("span", { class: "chip ok", text: "Done" });
+    case "skipped": return el("span", { class: "chip ok", text: "In library" });
+    case "downloading": return el("span", { class: "chip run", text: d.progress > 0 ? `${Math.round(d.progress)}%` : "Starting" });
+    case "queued": return el("span", { class: "chip dim", text: "Queued" });
+    case "failed": return el("span", { class: "chip bad", text: "Failed" });
+    default: return el("span", { class: "chip dim", text: d.status });
+  }
+}
+
+async function retry(id) {
+  try {
+    applyDownload(await api(`/api/downloads/${encodeURIComponent(id)}/retry`, { method: "POST" }));
+  } catch (e) { toast(e.message); }
+}
+
+function downloadRow(track, d, inLibrary, skipped = false) {
+  const meta = el("div", { class: "meta" },
+    el("div", { class: "title", text: track.title || d?.title || "Unknown song" }),
+    el("div", { class: "sub", text: track.artist || d?.artist || "" }));
+  if (d && d.status === "downloading") meta.append(el("div", { class: "bar" }, el("i", { style: `width:${Math.max(3, d.progress || 0)}%` })));
+  if (d && d.status === "failed" && d.error) meta.append(el("div", { class: "err-line", text: d.error }));
+  const right = d && d.status === "failed"
+    ? el("button", { class: "small", onclick: () => retry(d.id), "aria-label": "Retry" }, icon("retry"))
+    : statusChip(d, inLibrary, skipped);
+  return el("div", { class: "row" }, cover(track.video_id || d?.video_id, ""), meta, right);
+}
+
+// --------------------------------------------------------------- recent
+let recentTimer;
+function scheduleRecent() {
+  clearTimeout(recentTimer);
+  recentTimer = setTimeout(renderRecent, 250);
+}
+
+function renderRecent() {
+  const box = $("recent");
+  const items = [...downloads.values()]
+    .filter((d) => d.status !== "skipped")
+    .sort((a, b) => b.updated_at - a.updated_at)
+    .slice(0, 8);
+  box.replaceChildren();
+  if (!items.length) {
+    box.append(el("div", { class: "empty", text: "Nothing downloaded yet." }));
+    return;
+  }
+  for (const d of items) box.append(downloadRow({ video_id: d.video_id, title: d.title, artist: d.artist }, d, false));
+}
+
+// ------------------------------------------------------------ resolving
+let resolveSeq = 0;
+let lastResolved = "";
+
+function looksLikeLink(s) {
+  return /(youtube\.com|youtu\.be)\//i.test(s);
+}
+
+function showLoading() {
+  stage.replaceChildren(el("section", { class: "card" },
+    el("div", { class: "song" },
+      el("div", { class: "cover skel" }),
+      el("div", { class: "meta", style: "flex:1" },
+        el("div", { class: "skel", style: "height:18px;width:80%" }),
+        el("div", { class: "skel", style: "height:14px;width:55%;margin-top:10px" }),
+        el("div", { class: "skel", style: "height:22px;width:90px;margin-top:12px;border-radius:999px" })))));
+}
+
+function showError(message, retryFn) {
+  stage.replaceChildren(el("section", { class: "card" },
+    el("div", { class: "notice" },
+      el("div", { class: "ico" }, icon("alert")),
+      el("div", {}, el("b", { text: "That didn't work" }), el("p", { text: message }))),
+    retryFn ? el("button", { class: "wide ghost", onclick: retryFn, text: "Try again" }) : null));
+}
+
+async function resolveLink(url, pick) {
+  const seq = ++resolveSeq;
+  lastResolved = url + "|" + (pick || "");
+  job = null;
+  showLoading();
+  try {
+    const q = new URLSearchParams({ url });
+    if (pick) q.set("as", pick);
+    const r = await api(`/api/resolve?${q}`);
+    if (seq !== resolveSeq) return;
+    if (r.kind === "song") renderSong(r.track);
+    else if (r.kind === "playlist") await renderPlaylist(url, r);
+    else renderAmbiguous(url);
+  } catch (e) {
+    if (seq !== resolveSeq) return;
+    showError(e.message, () => resolveLink(url, pick));
+  }
+}
+
+function renderAmbiguous(url) {
+  stage.replaceChildren(el("section", { class: "card" },
+    el("h2", { text: "Song or playlist?" }),
+    el("p", { class: "hint", text: "This link opens a song inside a playlist." }),
+    el("div", { class: "choice" },
+      el("button", { onclick: () => resolveLink(url, "song") }, "Just this song", el("small", { text: "1 song" })),
+      el("button", { onclick: () => resolveLink(url, "playlist") }, "Whole playlist", el("small", { text: "All songs" })))));
+}
+
+// ----------------------------------------------------------------- song
+function renderSong(track) {
+  const have = !!track.downloaded;
+  const details = [track.album, fmtDuration(track.duration_sec)].filter(Boolean).join(" · ");
+  const btn = el("button", { class: "wide primary", text: have ? "Already in your library" : "Download" });
+  btn.disabled = have;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.replaceChildren(el("span", { class: "spin" }), " Adding…");
+    try {
+      const d = await api("/api/downloads", { method: "POST", body: JSON.stringify({ video_id: track.video_id }) });
+      downloads.set(d.id, d);
+      job = { kind: "song", title: track.title, tracks: [track], inLibrary: new Set(), byVideo: new Map([[d.video_id, d.id]]) };
+      renderJob();
+      renderRecent();
+    } catch (e) {
+      toast(e.message);
+      btn.disabled = false;
+      btn.textContent = "Download";
+    }
+  });
+  stage.replaceChildren(el("section", { class: "card" },
+    el("div", { class: "song" },
+      cover(track.video_id, "cover big"),
+      el("div", { class: "meta" },
+        el("div", { class: "title", text: track.title }),
+        el("div", { class: "sub", text: track.artist }),
+        details ? el("div", { class: "sub", text: details }) : null,
+        have ? el("span", { class: "badge ok" }, icon("check"), "In library") : el("span", { class: "badge new", text: "New song" }))),
+    btn));
+}
+
+// ------------------------------------------------------------- playlist
+async function renderPlaylist(url, info) {
+  const tracks = info.tracks;
+  const inLib = tracks.filter((t) => t.downloaded).length;
+  const missing = tracks.length - inLib;
+  let playlists = [];
+  try {
+    playlists = (await api("/api/playlists")).filter((p) => p.kind !== "discover");
+  } catch { /* the "existing" option just stays empty */ }
+
+  let mode = "new";
+  const nameInput = el("input", { type: "text", value: info.title || "", placeholder: "Playlist name", maxlength: "120", enterkeyhint: "done", "aria-label": "Playlist name" });
+  const select = el("select", { "aria-label": "Playlist to add to" },
+    playlists.length ? playlists.map((p) => el("option", { value: p.id, text: `${p.name} · ${p.track_count} songs` }))
+                     : el("option", { value: "", text: "No playlists yet" }));
+  const extraNew = el("div", { class: "mode-extra" }, el("label", { text: "Name" }), nameInput);
+  const extraExisting = el("div", { class: "mode-extra", hidden: true }, el("label", { text: "Add to" }), select);
+  const go = el("button", { class: "wide primary" });
+
+  function updateButton() {
+    if (mode === "existing" && !playlists.length) {
+      go.textContent = "Create a playlist first";
+      go.disabled = true;
+      return;
+    }
+    go.disabled = mode === "new" && !nameInput.value.trim();
+    const dl = missing ? ` & download ${missing}` : "";
+    go.textContent = mode === "new" ? `Create playlist${dl}`
+      : mode === "existing" ? `Add ${tracks.length} songs${dl}`
+      : missing ? `Download ${missing} song${missing === 1 ? "" : "s"}` : "All songs already downloaded";
+    if (mode === "songs" && !missing) go.disabled = true;
+  }
+
+  const modeButtons = [];
+  function modeButton(key, ico, title, desc) {
+    const b = el("button", { class: "mode", type: "button", "aria-pressed": key === mode ? "true" : "false",
+      onclick: () => {
+        mode = key;
+        for (const mb of modeButtons) mb.setAttribute("aria-pressed", mb.dataset.mode === key ? "true" : "false");
+        extraNew.hidden = key !== "new";
+        extraExisting.hidden = key !== "existing";
+        updateButton();
+      } },
+      el("span", { class: "ico" }, icon(ico)),
+      el("div", {}, el("b", { text: title }), el("span", { text: desc })));
+    b.dataset.mode = key;
+    modeButtons.push(b);
+    return b;
+  }
+
+  nameInput.addEventListener("input", updateButton);
+  go.addEventListener("click", async () => {
+    const body = { playlist_url: info.playlist_url };
+    if (mode === "new") body.name = nameInput.value.trim();
+    else if (mode === "existing") body.playlist_id = Number(select.value);
+    else body.mode = "songs_only";
+    go.disabled = true;
+    go.replaceChildren(el("span", { class: "spin" }), " Starting…");
+    try {
+      const r = await api("/api/downloads", { method: "POST", body: JSON.stringify(body) });
+      for (const d of r.downloads || []) downloads.set(d.id, d);
+      const where = mode === "songs" ? "your library" : `“${r.name}”`;
+      job = { kind: "playlist", title: r.name, tracks, inLibrary: new Set(tracks.filter((t) => t.downloaded).map((t) => t.video_id)),
+              byVideo: new Map((r.downloads || []).map((d) => [d.video_id, d.id])),
+              note: r.already_in_playlist ? `${r.already_in_playlist} already in the playlist` : "", where };
+      renderJob();
+      renderRecent();
+      toast(r.queued ? `Downloading ${r.queued} song${r.queued === 1 ? "" : "s"} to ${where}` : `Added to ${where}`);
+    } catch (e) {
+      toast(e.message);
+      updateButton();
+    }
+  });
+
+  const list = el("div", { class: "list" });
+  const LIMIT = 40;
+  for (const t of tracks.slice(0, LIMIT)) {
+    list.append(el("div", { class: "row" }, cover(t.video_id, ""),
+      el("div", { class: "meta" }, el("div", { class: "title", text: t.title }), el("div", { class: "sub", text: [t.artist, fmtDuration(t.duration_sec)].filter(Boolean).join(" · ") })),
+      t.downloaded ? el("span", { class: "chip ok", text: "In library" }) : el("span", { class: "chip new", text: "Will download" })));
+  }
+  if (tracks.length > LIMIT) list.append(el("div", { class: "more", text: `+ ${tracks.length - LIMIT} more songs` }));
+
+  stage.replaceChildren(el("section", { class: "card" },
+    el("div", { class: "song" },
+      cover(tracks[0]?.video_id, "cover"),
+      el("div", { class: "meta" },
+        el("div", { class: "title", text: info.title }),
+        el("div", { class: "sub", text: `Playlist · ${tracks.length} song${tracks.length === 1 ? "" : "s"}` }),
+        el("div", { class: "summary" },
+          inLib ? el("span", { class: "badge ok" }, `${inLib} in library`) : null,
+          missing ? el("span", { class: "badge new" }, `${missing} to download`) : null))),
+    el("div", { class: "modes" },
+      modeButton("new", "plus", "Create new playlist", "Name it and download the songs"),
+      extraNew,
+      modeButton("existing", "list", "Add to a playlist", "Append to one you already have"),
+      extraExisting,
+      modeButton("songs", "down", "Download songs only", "Into your library, no playlist")),
+    go, list));
+  updateButton();
+}
+
+// ------------------------------------------------------------ job view
+function renderJob() {
+  if (!job) return;
+  const rows = job.tracks.map((t) => {
+    const d = downloads.get(job.byVideo.get(t.video_id)) || null;
+    const lib = job.inLibrary.has(t.video_id);
+    // Not downloaded, not queued: it was already in the target playlist.
+    return { t, d, lib, skipped: !d && !lib };
+  });
+  const finished = rows.filter((r) => r.lib || r.skipped || (r.d && ["done", "skipped"].includes(r.d.status))).length;
+  const failed = rows.filter((r) => r.d && r.d.status === "failed").length;
+  const total = rows.length;
+  const allDone = finished + failed === total;
+  const partial = rows.reduce((sum, r) => sum + (r.d && r.d.status === "downloading" ? (r.d.progress || 0) / 100 : 0), 0);
+  const pct = total ? Math.round(((finished + partial) / total) * 100) : 100;
+
+  const head = allDone
+    ? el("div", { class: "notice" },
+        el("div", { class: failed ? "ico" : "ico ok" }, icon(failed ? "alert" : "check")),
+        el("div", {}, el("b", { text: failed ? `${finished} of ${total} done, ${failed} failed` : "All done!" }),
+          el("p", { text: failed ? "Tap retry on the failed songs." : `${job.kind === "song" ? "The song is" : "Everything is"} in ${job.where || "your library"}. It shows up in Amperfy within a minute.` })))
+    : el("div", {},
+        el("div", { class: "progress-head" }, el("h2", { text: job.title || "Downloading" }), el("span", { class: "count", text: `${finished} / ${total}` })),
+        el("div", { class: "bar big-bar" }, el("i", { style: `width:${Math.max(3, pct)}%` })),
+        el("p", { class: "hint", style: "margin:6px 0 0", text: job.note || "You can lock your phone, downloads keep going on your PC." }));
+
+  const list = el("div", { class: "list" }, rows.slice(0, 60).map((r) => downloadRow(r.t, r.d, r.lib, r.skipped)));
+  if (rows.length > 60) list.append(el("div", { class: "more", text: `+ ${rows.length - 60} more songs` }));
+  stage.replaceChildren(el("section", { class: "card" }, head, list,
+    allDone ? el("button", { class: "wide ghost", onclick: resetLink, text: "Add another link" }) : null));
+}
+
+function resetLink() {
+  job = null;
+  lastResolved = "";
+  $("link").value = "";
+  stage.replaceChildren();
+  $("link").focus();
+}
+
+// --------------------------------------------------------------- inputs
+let typingTimer;
+$("link").addEventListener("input", () => {
+  clearTimeout(typingTimer);
+  const v = $("link").value.trim();
+  if (!v) { stage.replaceChildren(); lastResolved = ""; return; }
+  if (looksLikeLink(v)) typingTimer = setTimeout(() => { if (lastResolved !== v + "|") resolveLink(v); }, 450);
+});
+
+$("linkForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = $("link").value.trim();
+  if (v) resolveLink(v);
+});
+
+$("pasteBtn").addEventListener("click", async () => {
+  try {
+    const text = (await navigator.clipboard.readText()).trim();
+    if (!text) { toast("Clipboard is empty"); return; }
+    $("link").value = text;
+    resolveLink(text);
+  } catch {
+    $("link").focus();
+    toast("Long-press the box and tap Paste");
+  }
+});
+
+window.addEventListener("online", () => { checkHealth(); loadDownloads(); });
+window.addEventListener("offline", () => setOnline(false));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadDownloads(); });
+
+// Share target / deep link: /?url=…
+const shared = new URLSearchParams(location.search).get("url");
+if (shared) { $("link").value = shared; resolveLink(shared); }
+
+checkHealth();
+loadDownloads();
+connectEvents();
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+[package]
+name = "geonix-player"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Music Player Lite audio engine (symphonia + cpal)"
+
+[lib]
+name = "geonix_player"
+
+[features]
+default = ["media-controls"]
+media-controls = ["dep:souvlaki"]
+
+[dependencies]
+symphonia = { version = "0.5.4", default-features = false, features = ["mp3", "aac", "isomp4", "flac", "wav", "pcm", "vorbis", "ogg"] }
+cpal = "0.15"
+reqwest = { workspace = true, features = ["blocking"] }
+souvlaki = { version = "0.8", optional = true }
+
+[dev-dependencies]

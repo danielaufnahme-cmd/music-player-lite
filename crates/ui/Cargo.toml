@@ -1,0 +1,48 @@
+[package]
+name = "geonix-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "Music Player Lite desktop app (Slint)"
+
+[[bin]]
+name = "geonix-lite"
+path = "src/main.rs"
+
+[features]
+default = ["software", "femtovg", "embedded-server", "audio"]
+# Software renderer: no GPU memory at all (default).
+software = ["slint/renderer-software"]
+# GPU renderer (OpenGL via femtovg), used only when the "GPU renderer" setting
+# (or GEONIX_RENDERER=femtovg) asks for it; the software renderer stays the
+# default. Costs ~8 MB of binary, no RSS unless selected.
+femtovg = ["slint/renderer-femtovg"]
+# Start crates/server in-process when no backend answers on GEONIX_PORT.
+embedded-server = ["dep:geonix-server"]
+# Real audio output through crates/player (otherwise a silent simulated clock).
+audio = ["dep:geonix-player"]
+
+[dependencies]
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "backend-winit-x11", "backend-winit-wayland", "unstable-winit-030"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync", "macros", "signal", "process", "fs", "net", "io-util"] }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures-util = { workspace = true }
+anyhow = { workspace = true }
+dirs = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+geonix-server = { path = "../server", optional = true }
+geonix-player = { path = "../player", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+slint-build = "1.18"
+
+[dev-dependencies]
+i-slint-backend-testing = "=1.18.1"

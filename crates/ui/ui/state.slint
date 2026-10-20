@@ -1,0 +1,253 @@
+// Globals shared between the Rust controller and the UI.
+import { TrackItem, PlaylistItem, CardItem, SectionItem, DownloadRow, LyricLine, MenuEntry, DeviceItem, PreviewItem } from "theme.slint";
+
+export enum Page { home, search, library, downloads, playlist, artist, album, settings }
+
+export global Nav {
+    in-out property <Page> page: Page.home;
+    in-out property <bool> can-pop;
+    // Selected playlist in the sidebar (-1 = none).
+    in-out property <int> playlist-id: -1;
+    callback go(Page);
+    callback pop();
+    callback open-playlist(int, /* push */ bool);
+    callback open-artist(string);
+    callback open-album(string, string);
+}
+
+export global Player {
+    in-out property <bool> has-track;
+    in-out property <string> id;
+    in-out property <string> title;
+    in-out property <string> artist;
+    in-out property <string> album;
+    in-out property <bool> playing;
+    in-out property <bool> buffering;
+    in-out property <bool> shuffle;
+    // 0 off, 1 all, 2 one
+    in-out property <int> repeat;
+    in-out property <bool> has-next;
+    in-out property <float> volume: 80; // 0..100
+    in-out property <float> position; // seconds
+    in-out property <float> duration; // seconds
+    in-out property <string> position-text: "0:00";
+    in-out property <string> duration-text: "0:00";
+    in-out property <[TrackItem]> up-next;
+    in-out property <bool> queue-open;
+    in-out property <bool> now-playing-open;
+    in-out property <bool> np-panel-open: true;
+    in-out property <int> np-tab; // 0 up next, 1 lyrics
+    // Wavy seek line, animated while playing (wave-tick changes per frame).
+    in-out property <bool> wave-on;
+    in-out property <int> wave-tick;
+    pure callback wave-path(/* end x */ length, /* height */ length, /* large */ bool, int) -> string;
+
+    // Lyrics of the playing song. state: 0 loading, 1 none, 2 plain, 3 synced
+    in-out property <int> lyrics-state;
+    in-out property <[LyricLine]> lyrics;
+    in-out property <int> lyric-line: -1;
+    in-out property <string> lyrics-source;
+
+    callback play-pause();
+    callback next();
+    callback previous();
+    callback toggle-shuffle();
+    callback cycle-repeat();
+    callback seek(float); // fraction 0..1
+    callback seek-ms(int);
+    callback set-volume(float);
+    callback toggle-mute();
+    callback jump-to(int);
+    callback remove-up-next(int);
+    callback move-up-next(int, int);
+    callback clear-up-next();
+    callback download-up-next();
+    callback add-current-to-playlist();
+}
+
+export global Lib {
+    // Download state for a song, see TrackTile: 0 none, 1 done, 2 queued, 3 downloading, 4 failed
+    in-out property <int> dl-rev;
+    pure callback dl-state(string, int) -> int;
+    pure callback dl-progress(string, int) -> float;
+    in-out property <int> active-downloads;
+
+    in-out property <[PlaylistItem]> playlists;
+    in-out property <bool> playlists-loading: true;
+
+    // Home
+    in-out property <string> greeting: "Good evening";
+    in-out property <[SectionItem]> home-sections;
+    in-out property <int> home-state; // 0 loading, 1 ok, 2 error, 3 empty library
+    in-out property <string> home-error;
+    in-out property <bool> recs-loading;
+
+    // Library
+    in-out property <int> library-tab;
+    in-out property <string> library-filter;
+    in-out property <string> library-sort: "added";
+    in-out property <string> library-sort-label: "Date added";
+    in-out property <string> library-count;
+    in-out property <[TrackItem]> library-tracks;
+    in-out property <int> library-state; // 0 loading, 1 ok, 2 error
+    in-out property <string> library-error;
+    in-out property <[CardItem]> artists;
+    in-out property <[CardItem]> albums;
+    in-out property <[CardItem]> playlist-cards;
+
+    // Search
+    in-out property <string> search-query;
+    // 0 empty query, 1 loading, 2 results, 3 no results, 4 error, 5 playlist preview loading,
+    // 6 playlist preview, 7 playlist error
+    in-out property <int> search-state;
+    in-out property <string> search-error;
+    in-out property <[TrackItem]> search-results;
+    in-out property <string> preview-title;
+    in-out property <string> preview-summary;
+    in-out property <[string]> preview-covers;
+    in-out property <bool> import-busy;
+
+    // Playlist page
+    in-out property <int> pl-state; // 0 loading, 1 ok, 2 error
+    in-out property <int> pl-id;
+    in-out property <string> pl-name;
+    in-out property <string> pl-kind;
+    in-out property <string> pl-label;
+    in-out property <string> pl-meta;
+    in-out property <[string]> pl-covers;
+    in-out property <int> pl-not-downloaded;
+    in-out property <[TrackItem]> pl-tracks;
+
+    // Artist / album page
+    in-out property <bool> tl-artist;
+    in-out property <string> tl-label;
+    in-out property <string> tl-title;
+    in-out property <string> tl-meta;
+    in-out property <string> tl-cover;
+    in-out property <[TrackItem]> tl-tracks;
+
+    // Downloads page
+    in-out property <[DownloadRow]> downloads;
+    in-out property <bool> downloads-empty: true;
+    in-out property <string> downloads-subtitle: "Nothing downloading right now";
+    in-out property <int> selected-count;
+    in-out property <int> failed-count;
+
+    // Private listening: 0 unknown/hidden, 1 off, 2 on
+    in-out property <int> private-listening;
+    // Theme menu
+    in-out property <bool> following-desktop;
+    in-out property <string> theme-label: "Default dark";
+    // Device sync: 0 unknown, 1 available, 2 unavailable
+    in-out property <int> sync-available;
+    in-out property <bool> syncing;
+
+    callback play(/* list key */ string, int);
+    callback play-all(string, /* shuffle */ bool);
+    callback track-clicked(string, int);
+    callback download(string, int);
+    callback card-clicked(string, int);
+    callback card-play(string, int);
+    callback card-download(string, int);
+    callback refresh-recs();
+    callback retry-home();
+    callback set-library-filter(string);
+    callback set-search(string);
+    callback clear-search();
+    callback import-preview();
+    callback preview-play();
+    callback download-all-playlist();
+    callback new-playlist();
+    callback toggle-private();
+    callback open-devices();
+    callback reorder-playlist(int, int);
+    callback playlist-more();
+    // downloads
+    callback dl-toggle(string, /* shift */ bool);
+    callback dl-section-toggle(string);
+    callback dl-remove(string);
+    callback dl-retry(string);
+    callback dl-retry-all();
+    callback dl-clear(string);
+    callback dl-clear-selection();
+    callback dl-remove-selected();
+    callback dl-select-all();
+}
+
+// Popup menus, dialogs and the snackbar.
+export global Ui {
+    in-out property <bool> shift-down;
+    // Snackbar
+    in-out property <string> snack;
+    in-out property <bool> snack-visible;
+
+    // Context menu at (menu-x, menu-y) in window coordinates.
+    in-out property <bool> menu-open;
+    in-out property <length> menu-x;
+    in-out property <length> menu-y;
+    in-out property <length> menu-width: 240px;
+    in-out property <[MenuEntry]> menu-items;
+    callback open-track-menu(string, int, length, length);
+    callback open-theme-menu(length, length);
+    callback open-sort-menu(length, length);
+    callback open-playlist-menu(length, length);
+    callback menu-selected(int);
+
+    // Dialogs: "" none, "confirm", "text", "remove-track", "picker", "new-playlist", "import", "devices"
+    in-out property <string> dialog;
+    in-out property <string> dlg-title;
+    in-out property <string> dlg-message;
+    in-out property <string> dlg-confirm;
+    in-out property <string> dlg-text;
+    in-out property <string> dlg-hint;
+    in-out property <bool> dlg-check;
+    callback dialog-confirm();
+    callback dialog-cancel();
+
+    // Playlist picker
+    in-out property <[PlaylistItem]> picker-items;
+    callback picker-chosen(int);
+
+    // New playlist / import
+    in-out property <bool> np-import;
+    in-out property <string> np-name;
+    in-out property <string> import-url;
+    // 0 idle, 1 loading, 2 error, 3 preview
+    in-out property <int> import-state;
+    in-out property <string> import-error;
+    in-out property <string> import-summary;
+    in-out property <[PreviewItem]> import-items;
+    in-out property <string> import-action;
+    in-out property <bool> import-can-submit;
+    in-out property <bool> import-into; // true = into existing playlist
+    callback np-name-edited(string);
+    callback import-url-edited(string);
+    callback paste-url();
+
+    // Devices dialog
+    in-out property <int> dev-state; // 0 loading, 1 ok, 2 error, 3 unsupported
+    in-out property <string> dev-error;
+    in-out property <string> dev-this;
+    in-out property <string> dev-code;
+    in-out property <[DeviceItem]> devices;
+    in-out property <string> pair-code;
+    in-out property <string> pair-error;
+    in-out property <bool> pairing;
+    in-out property <bool> sync-progress-visible;
+    in-out property <float> sync-fraction: -1; // <0 unknown
+    in-out property <string> sync-label;
+    in-out property <bool> sync-label-error;
+    callback pair();
+    callback pair-code-edited(string);
+    callback copy-code();
+    callback new-code();
+    callback remove-device(string);
+    callback sync-now();
+
+    callback key-pressed(string, bool, bool) -> bool;
+    callback resized();
+    callback np-opened();
+    callback start-drag();
+    callback minimize();
+    callback close();
+}

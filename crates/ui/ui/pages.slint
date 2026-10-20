@@ -1,0 +1,902 @@
+// The pages of the shell: home, search, library, downloads, playlist, artist/album.
+import { ScrollView, ListView } from "std-widgets.slint";
+import { Theme, Type, Radius, Covers, TrackItem, CardItem, SectionItem, DownloadRow } from "theme.slint";
+import { Icons } from "icons.slint";
+import { Nav, Page, Player, Lib, Ui } from "state.slint";
+import { Txt, Icon, IconButton, Button, Field, Cover, PlaylistCover, CoverCard, TrackTile, SectionRow, EmptyState, PageHeader, Checkbox, Progress } from "widgets.slint";
+
+// Space so content can scroll out from under the floating player bar.
+export global Layout {
+    out property <length> bottom-pad: 120px;
+}
+
+// Accent gradient behind page headers (the Flutter app's wave header).
+component HeaderGlow inherits Rectangle {
+    in property <float> strength: 0.24;
+    // Rounded solid cap for the panel's top corners (gradients ignore radii).
+    Rectangle {
+        y: 0;
+        height: 14px;
+        clip: true;
+        Rectangle {
+            y: 0;
+            height: 28px;
+            border-radius: 14px;
+            background: Theme.accent.with-alpha(strength);
+        }
+    }
+    Rectangle {
+        y: 14px;
+        height: parent.height - 14px;
+        background: @linear-gradient(180deg, Theme.accent.with-alpha(strength) 0%, Theme.accent.with-alpha(strength * 0.35) 70%, Theme.accent.with-alpha(0) 100%);
+    }
+}
+
+export component HomePage inherits Rectangle {
+    ScrollView {
+        content-height: col.preferred-height;
+        col := VerticalLayout {
+            alignment: start;
+            Rectangle {
+                HeaderGlow { strength: 0.14; }
+                HorizontalLayout {
+                    padding-left: 32px;
+                    padding-right: 32px;
+                    padding-top: 40px;
+                    padding-bottom: 36px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: end;
+                        Txt {
+                            text: Lib.greeting;
+                            font-size: 32px;
+                            font-weight: 800;
+                            letter-spacing: -1.1px;
+                        }
+                    }
+                    if Lib.home-state != 3: VerticalLayout {
+                        alignment: end;
+                        Button {
+                            kind: 2;
+                            text: "Refresh";
+                            icon: Icons.refresh;
+                            has-icon: true;
+                            busy: Lib.recs-loading;
+                            enabled: !Lib.recs-loading;
+                            clicked => { Lib.refresh-recs(); }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                padding-left: 32px;
+                padding-right: 32px;
+                padding-bottom: Layout.bottom-pad;
+                if Lib.home-state == 2: EmptyState {
+                    icon: Icons.cloud-off;
+                    title: "Can’t reach the Music Player Lite server";
+                    message: Lib.home-error;
+                    action: "Retry";
+                    act => { Lib.retry-home(); }
+                }
+                if Lib.home-state == 3: EmptyState {
+                    icon: Icons.library-music;
+                    title: "No songs yet";
+                    message: "Download a song from Search, or paste a YouTube Music playlist link there to import the whole list.";
+                    action: "Open Search";
+                    act => { Nav.go(Page.search); }
+                }
+                if Lib.home-state <= 1: VerticalLayout {
+                    for s in Lib.home-sections: SectionRow {
+                        key: s.key;
+                        title: s.title;
+                        subtitle: s.subtitle;
+                        cards: s.cards;
+                        loading: s.loading;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SearchPage inherits Rectangle {
+    public function focus-field() { field.focus-input(); }
+    VerticalLayout {
+        VerticalLayout {
+            padding-left: 32px;
+            padding-right: 32px;
+            padding-top: 40px;
+            padding-bottom: 16px;
+            spacing: 24px;
+            Txt {
+                text: "Search";
+                font-size: 32px;
+                font-weight: 800;
+                letter-spacing: -1.1px;
+            }
+            field := Field {
+                text: Lib.search-query;
+                hint: "Song, artist or album. A YouTube Music playlist link works too.";
+                prefix: Icons.search;
+                has-prefix: true;
+                suffix: Icons.close;
+                has-suffix: Lib.search-query != "";
+                font-size: 15px;
+                pad-v: 12px;
+                edited(t) => { Lib.set-search(t); }
+                suffix-clicked => {
+                    Lib.clear-search();
+                    self.text = "";
+                    self.focus-input();
+                }
+            }
+        }
+        if Lib.search-state == 0: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.search;
+            title: "Search YouTube Music";
+            message: "Click a result to preview it. The arrow on the right downloads it to your library. Paste a playlist link to get the whole list.";
+        }
+        if Lib.search-state == 1 || Lib.search-state == 5: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: start;
+            padding-left: 76px;
+            padding-right: 32px;
+            padding-top: 8px;
+            spacing: 16px;
+            for i in (Lib.search-state == 5 ? 6 : 8): HorizontalLayout {
+                spacing: 12px;
+                Rectangle { width: 40px; height: 40px; border-radius: Radius.thumb; background: Theme.tint; }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    HorizontalLayout { alignment: start; Rectangle { width: 160px + mod(i * 37, 120) * 1px; height: 12px; border-radius: 3px; background: Theme.tint; } }
+                    HorizontalLayout { alignment: start; Rectangle { width: 90px + mod(i * 23, 80) * 1px; height: 10px; border-radius: 3px; background: Theme.tint; } }
+                }
+            }
+        }
+        if Lib.search-state == 3: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.search-off;
+            title: "Nothing found for “" + Lib.search-query + "”";
+            message: "Check the spelling, or try just the song title.";
+        }
+        if Lib.search-state == 4: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.wifi-off;
+            title: "Search didn’t go through";
+            message: Lib.search-error;
+            action: "Retry";
+            act => { Lib.set-search(Lib.search-query); }
+        }
+        if Lib.search-state == 7: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.link-off;
+            title: "Couldn’t open that playlist";
+            message: Lib.search-error;
+            action: "Retry";
+            act => { Lib.set-search(Lib.search-query); }
+        }
+        if Lib.search-state == 2 || Lib.search-state == 6: ListView {
+            vertical-stretch: 1;
+            for t[i] in Lib.search-results: VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: i == Lib.search-results.length - 1 ? Layout.bottom-pad : 0;
+                if i == 0 && Lib.search-state == 6: VerticalLayout {
+                    padding-top: 8px;
+                    padding-bottom: 16px;
+                    Rectangle {
+                        border-radius: Radius.control;
+                        background: Theme.tint;
+                        HorizontalLayout {
+                            padding: 16px;
+                            spacing: 20px;
+                            PlaylistCover {
+                                covers: Lib.preview-covers;
+                                size: 128px;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 6px;
+                                Txt {
+                                    text: "YouTube Music playlist";
+                                    font-size: 13px;
+                                    color: Theme.muted;
+                                }
+                                Txt {
+                                    text: Lib.preview-title;
+                                    font-size: 26px;
+                                    font-weight: 800;
+                                    letter-spacing: -0.8px;
+                                    overflow: elide;
+                                }
+                                Txt {
+                                    text: Lib.preview-summary;
+                                    font-size: 13px;
+                                    color: Theme.muted;
+                                }
+                                HorizontalLayout {
+                                    padding-top: 12px;
+                                    spacing: 8px;
+                                    alignment: start;
+                                    Button {
+                                        text: "Download all";
+                                        icon: Icons.download;
+                                        has-icon: true;
+                                        busy: Lib.import-busy;
+                                        clicked => { Lib.import-preview(); }
+                                    }
+                                    Button {
+                                        kind: 2;
+                                        text: "Preview";
+                                        icon: Icons.play-arrow;
+                                        has-icon: true;
+                                        clicked => { Lib.preview-play(); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                TrackTile {
+                    track: t;
+                    index: i;
+                    list: "search";
+                }
+            }
+        }
+    }
+}
+
+// Text tabs with an underline under the selected one.
+component Tabs inherits Rectangle {
+    in property <[string]> labels;
+    in property <int> selected;
+    callback select(int);
+    height: 40px;
+    HorizontalLayout {
+        spacing: 24px;
+        for l[i] in labels: Rectangle {
+            width: lbl.preferred-width;
+            lbl := Txt {
+                y: 8px;
+                height: 22px;
+                text: l;
+                font-size: 15px;
+                font-weight: i == selected ? 700 : 600;
+                color: i == selected ? Theme.text : (tt.has-hover ? Theme.text.with-alpha(0.85) : Theme.muted);
+            }
+            if i == selected: Rectangle {
+                y: parent.height - 2px;
+                height: 2px;
+                border-radius: 1px;
+                background: Theme.text;
+            }
+            tt := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.select(i); }
+            }
+        }
+    }
+}
+
+component CardGrid inherits ScrollView {
+    in property <[CardItem]> cards;
+    in property <string> key;
+    // Fixed 16px gutters; columns stretch to fill the width, all left edges at 32px.
+    private property <length> avail: self.visible-width - 64px + 16px;
+    private property <int> cols: max(1, floor(avail / 176px));
+    private property <length> cell: avail / cols;
+    private property <length> img: min(200px, cell - 16px);
+    content-height: ceil(cards.length / cols) * (img + 88px) + 16px + Layout.bottom-pad;
+    for c[i] in cards: CoverCard {
+        x: 32px + mod(i, cols) * cell;
+        y: 16px + floor(i / cols) * (img + 88px);
+        card: c;
+        image-size: img;
+        tapped => { Lib.card-clicked(key, i); }
+        play => { Lib.card-play(key, i); }
+    }
+}
+
+export component LibraryPage inherits Rectangle {
+    VerticalLayout {
+        VerticalLayout {
+            vertical-stretch: 0;
+            padding-left: 32px;
+            padding-right: 32px;
+            padding-top: 40px;
+            padding-bottom: 16px;
+            PageHeader {
+                title: "Library";
+                subtitle: Lib.library-count;
+                if Lib.library-tab == 0 && Lib.library-tracks.length > 0: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            kind: 1;
+                            text: "Shuffle";
+                            icon: Icons.shuffle;
+                            has-icon: true;
+                            clicked => { Lib.play-all("library", true); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Play all";
+                            icon: Icons.play-arrow;
+                            has-icon: true;
+                            clicked => { Lib.play-all("library", false); }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: stretch;
+                Tabs {
+                    labels: ["Songs", "Artists", "Albums", "Playlists"];
+                    selected: Lib.library-tab;
+                    select(i) => { Lib.library-tab = i; }
+                }
+                Rectangle { horizontal-stretch: 1; vertical-stretch: 0; height: 1px; }
+                if Lib.library-tab == 0: Field {
+                    width: 240px;
+                    text: Lib.library-filter;
+                    hint: "Filter";
+                    prefix: Icons.filter-list;
+                    has-prefix: true;
+                    font-size: 13px;
+                    pad-v: 6px;
+                    edited(t) => { Lib.set-library-filter(t); }
+                }
+                if Lib.library-tab == 0: sort-btn := Rectangle {
+                    height: 36px;
+                    border-radius: Radius.control;
+                    background: sort-touch.has-hover ? Theme.text.with-alpha(0.08) : transparent;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 4px;
+                        spacing: 6px;
+                        alignment: center;
+                        VerticalLayout {
+                            alignment: center;
+                            Icon { width: 16px; height: 16px; source: Icons.sort; colorize: Theme.muted; }
+                        }
+                        Txt { text: Lib.library-sort-label; font-size: 13px; color: Theme.muted; }
+                        VerticalLayout {
+                            alignment: center;
+                            Icon { source: Icons.arrow-drop-down; }
+                        }
+                    }
+                    sort-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Ui.open-sort-menu(sort-btn.absolute-position.x, sort-btn.absolute-position.y + sort-btn.height); }
+                    }
+                }
+            }
+        }
+        if Lib.library-tab == 0 && Lib.library-state == 0: Rectangle { vertical-stretch: 1; }
+        if Lib.library-tab == 0 && Lib.library-state == 2: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.cloud-off;
+            title: "Couldn’t load your library";
+            message: Lib.library-error;
+            action: "Retry";
+            act => { Lib.retry-home(); }
+        }
+        if Lib.library-tab == 0 && Lib.library-state == 1 && Lib.library-tracks.length == 0 && Lib.library-filter != "": EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.search-off;
+            title: "No song matches “" + Lib.library-filter + "”";
+        }
+        if Lib.library-tab == 0 && Lib.library-state == 1 && Lib.library-tracks.length == 0 && Lib.library-filter == "": EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.library-music;
+            title: "No songs yet";
+            message: "Songs you download from Search end up here.";
+            action: "Open Search";
+            act => { Nav.go(Page.search); }
+        }
+        if Lib.library-tab == 0 && Lib.library-tracks.length > 0: ListView {
+            vertical-stretch: 1;
+            for t[i] in Lib.library-tracks: HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: i == Lib.library-tracks.length - 1 ? Layout.bottom-pad : 0;
+                TrackTile {
+                    track: t;
+                    index: i;
+                    list: "library";
+                }
+            }
+        }
+        if Lib.library-tab == 1 && Lib.artists.length == 0: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.person;
+            title: "No artists yet";
+            message: "Artists appear once you have songs in your library.";
+        }
+        if Lib.library-tab == 1 && Lib.artists.length > 0: CardGrid {
+            vertical-stretch: 1;
+            cards: Lib.artists;
+            key: "artists";
+        }
+        if Lib.library-tab == 2 && Lib.albums.length == 0: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.album;
+            title: "No albums yet";
+            message: "Albums appear once you have songs in your library.";
+        }
+        if Lib.library-tab == 2 && Lib.albums.length > 0: CardGrid {
+            vertical-stretch: 1;
+            cards: Lib.albums;
+            key: "albums";
+        }
+        if Lib.library-tab == 3: CardGrid {
+            vertical-stretch: 1;
+            cards: Lib.playlist-cards;
+            key: "playlists";
+        }
+    }
+}
+
+component DownloadCard inherits Rectangle {
+    in property <DownloadRow> d;
+    private property <bool> active: d.status == "queued" || d.status == "downloading";
+    private property <bool> failed: d.status == "failed";
+    private property <color> st-color: d.status == "downloading" ? Theme.accent
+        : failed ? #FF5252
+        : Theme.muted;
+    height: inner.preferred-height + 4px;
+    Rectangle {
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: Radius.control;
+        background: d.selected ? Theme.accent-soft : (touch.has-hover && d.selectable ? Theme.text.with-alpha(0.06) : transparent);
+        touch := TouchArea {
+            mouse-cursor: d.selectable ? pointer : default;
+            pointer-event(e) => {
+                if (d.selectable && e.kind == PointerEventKind.up && e.button == PointerEventButton.left && self.has-hover) {
+                    Lib.dl-toggle(d.id, e.modifiers.shift);
+                }
+            }
+        }
+        inner := HorizontalLayout {
+            padding: 8px;
+            spacing: 0px;
+            if d.selectable: VerticalLayout {
+                alignment: center;
+                Checkbox {
+                    state: d.selected ? 2 : 0;
+                    toggled => { Lib.dl-toggle(d.id, false); }
+                }
+            }
+            if d.selectable: Rectangle { width: 4px; }
+            VerticalLayout {
+                alignment: center;
+                Cover {
+                    id: d.video-id;
+                    size: 40px;
+                    radius: Radius.thumb;
+                }
+            }
+            Rectangle { width: 12px; }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 0px;
+                    Txt {
+                        text: d.title;
+                        font-size: Type.body-medium;
+                        font-weight: 600;
+                        overflow: elide;
+                    }
+                    if d.artist != "": Txt {
+                        horizontal-stretch: 1;
+                        text: "  ·  " + d.artist;
+                        font-size: 13px;
+                        color: Theme.muted;
+                        overflow: elide;
+                    }
+                }
+                Rectangle { height: 4px; }
+                if active: Progress {
+                    value: d.status == "queued" ? -1 : d.progress / 100;
+                }
+                if active: Rectangle { height: 4px; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            width: 14px;
+                            height: 14px;
+                            source: d.status == "downloading" ? Icons.downloading
+                                : d.status == "queued" ? Icons.schedule
+                                : failed ? Icons.error-outline
+                                : d.status == "skipped" ? Icons.check-circle-outline : Icons.check-circle;
+                            colorize: st-color;
+                        }
+                    }
+                    Txt {
+                        horizontal-stretch: 1;
+                        text: d.status-text;
+                        font-size: Type.body-small;
+                        color: failed ? st-color : Theme.muted;
+                        wrap: word-wrap;
+                        overflow: elide;
+                        max-height: 34px;
+                    }
+                }
+            }
+            if failed: HorizontalLayout {
+                padding-left: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    Button {
+                        kind: 2;
+                        text: "Retry";
+                        icon: Icons.refresh;
+                        has-icon: true;
+                        clicked => { Lib.dl-retry(d.id); }
+                    }
+                }
+            }
+            if d.selectable: VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: Icons.close;
+                    icon-size: 20px;
+                    color: Theme.muted;
+                    clicked => { Lib.dl-remove(d.id); }
+                }
+            }
+        }
+    }
+}
+
+export component DownloadsPage inherits Rectangle {
+    VerticalLayout {
+        VerticalLayout {
+            padding-left: 32px;
+            padding-right: 32px;
+            padding-top: 40px;
+            PageHeader {
+                title: "Downloads";
+                subtitle: Lib.downloads-subtitle;
+                if Lib.selected-count > 0: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Txt {
+                        text: Lib.selected-count + " selected";
+                        font-size: Type.title-small;
+                        color: Theme.muted;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            kind: 3;
+                            text: "Clear selection";
+                            clicked => { Lib.dl-clear-selection(); }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            kind: 1;
+                            text: "Remove " + Lib.selected-count + " from list";
+                            icon: Icons.delete-sweep;
+                            has-icon: true;
+                            clicked => { Lib.dl-remove-selected(); }
+                        }
+                    }
+                }
+                if Lib.selected-count == 0 && Lib.failed-count > 0: VerticalLayout {
+                    alignment: center;
+                    Button {
+                        kind: 1;
+                        text: Lib.failed-count == 1 ? "Retry failed" : "Retry " + Lib.failed-count + " failed";
+                        icon: Icons.refresh;
+                        has-icon: true;
+                        clicked => { Lib.dl-retry-all(); }
+                    }
+                }
+            }
+        }
+        if Lib.downloads-empty: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.download;
+            title: "Nothing downloaded yet";
+            message: "When you download a song from Search, its progress shows up here.";
+            action: "Open Search";
+            act => { Nav.go(Page.search); }
+        }
+        if !Lib.downloads-empty: ListView {
+            vertical-stretch: 1;
+            for d[i] in Lib.downloads: VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: i == Lib.downloads.length - 1 ? Layout.bottom-pad : 0;
+                if d.kind == 0: HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 0px;
+                    padding-top: 28px;
+                    padding-bottom: 8px;
+                    spacing: 4px;
+                    if d.selectable: Checkbox {
+                        state: d.picked;
+                        toggled => { Lib.dl-section-toggle(d.section); }
+                    }
+                    Txt {
+                        horizontal-stretch: 1;
+                        text: d.title;
+                        font-size: 15px;
+                        font-weight: 700;
+                    }
+                    if d.section != "active": VerticalLayout {
+                        alignment: center;
+                        Button {
+                            kind: 3;
+                            text: d.section == "failed" ? "Clear failed" : "Clear finished";
+                            clicked => { Lib.dl-clear(d.section == "failed" ? "failed" : "done"); }
+                        }
+                    }
+                }
+                if d.kind == 1: DownloadCard { d: d; }
+                if d.kind == 2: Txt {
+                    height: 40px;
+                    text: "Shift+click selects a range, Ctrl+A selects all, Delete removes the selection from this list.";
+                    horizontal-alignment: center;
+                    font-size: Type.body-small;
+                    color: Theme.muted;
+                }
+            }
+        }
+    }
+}
+
+export component PlaylistPage inherits Rectangle {
+    private property <int> drag-from: -1;
+    private property <length> drag-dy;
+    if Lib.pl-state == 0: VerticalLayout {
+        padding-left: 32px;
+        padding-right: 32px;
+        padding-top: 40px;
+        spacing: 24px;
+        alignment: start;
+        HorizontalLayout {
+            spacing: 28px;
+            Rectangle { width: 192px; height: 192px; border-radius: Radius.hero; background: Theme.tint; }
+            VerticalLayout { alignment: center; Rectangle { height: 40px; border-radius: 4px; background: Theme.tint; } }
+        }
+    }
+    if Lib.pl-state == 2: EmptyState {
+        icon: Icons.playlist-remove;
+        title: "This playlist couldn’t be loaded";
+        message: Lib.home-error;
+        action: "Back to playlists";
+        act => { Lib.library-tab = 3; Nav.go(Page.library); }
+    }
+    if Lib.pl-state == 1: ListView {
+        for t[i] in Lib.pl-tracks: VerticalLayout {
+            padding-bottom: i == Lib.pl-tracks.length - 1 ? Layout.bottom-pad : 0;
+            if i == 0: Rectangle {
+                HeaderGlow { strength: 0.22; }
+                VerticalLayout {
+                    padding-left: 32px;
+                    padding-right: 32px;
+                    padding-top: 40px;
+                    padding-bottom: 32px;
+                    if Nav.can-pop: HorizontalLayout {
+                        alignment: start;
+                        padding-bottom: 16px;
+                        IconButton {
+                            icon: Icons.arrow-back;
+                            size: 36px;
+                            fill: Theme.text.with-alpha(0.08);
+                            clicked => { Nav.pop(); }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 24px;
+                        PlaylistCover {
+                            covers: Lib.pl-covers;
+                            size: 192px;
+                            radius: Radius.hero;
+                            discover: Lib.pl-kind == "discover";
+                        }
+                        VerticalLayout {
+                            alignment: end;
+                            spacing: 8px;
+                            Txt {
+                                text: Lib.pl-label;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.text.with-alpha(0.7);
+                            }
+                            Txt {
+                                text: Lib.pl-name;
+                                font-size: 44px;
+                                font-weight: 800;
+                                letter-spacing: -1.4px;
+                                overflow: elide;
+                            }
+                            Txt {
+                                text: Lib.pl-meta;
+                                font-size: 13px;
+                                color: Theme.muted;
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-top: 28px;
+                        spacing: 8px;
+                        alignment: start;
+                        Button {
+                            text: "Play";
+                            icon: Icons.play-arrow;
+                            has-icon: true;
+                            icon-size: 20px;
+                            pad-h: 16px;
+                            enabled: Lib.pl-tracks.length > 1;
+                            clicked => { Lib.play-all("playlist", false); }
+                        }
+                        Button {
+                            kind: 1;
+                            text: "Shuffle";
+                            icon: Icons.shuffle;
+                            has-icon: true;
+                            enabled: Lib.pl-tracks.length > 1;
+                            clicked => { Lib.play-all("playlist", true); }
+                        }
+                        if Lib.pl-not-downloaded > 0: Button {
+                            kind: 1;
+                            text: "Download " + Lib.pl-not-downloaded + " missing";
+                            icon: Icons.download;
+                            has-icon: true;
+                            clicked => { Lib.download-all-playlist(); }
+                        }
+                        if Lib.pl-kind == "discover": Button {
+                            kind: 1;
+                            text: "New mix";
+                            icon: Icons.refresh;
+                            has-icon: true;
+                            busy: Lib.recs-loading;
+                            clicked => { Lib.refresh-recs(); }
+                        }
+                        if Lib.pl-kind != "discover": VerticalLayout {
+                            alignment: center;
+                            more := IconButton {
+                                icon: Icons.more-horiz;
+                                clicked => { Ui.open-playlist-menu(more.absolute-position.x, more.absolute-position.y + more.height); }
+                            }
+                        }
+                    }
+                }
+            }
+            if i == 0 && Lib.pl-tracks.length == 1: EmptyState {
+                icon: Lib.pl-kind == "discover" ? Icons.equalizer : Icons.queue-music;
+                title: Lib.pl-kind == "discover" ? "No mix yet" : "No songs in this playlist";
+                message: Lib.pl-kind == "discover" ? "New mix builds one from the songs you play most." : "Add songs from the ⋯ menu on any song, or import a YouTube Music playlist into it.";
+                action: Lib.pl-kind == "discover" ? "" : "Import a playlist";
+                action-icon: Icons.playlist-add;
+                has-action-icon: true;
+                act => { Ui.menu-selected(100); }
+            }
+            if i > 0: HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                Rectangle {
+                    height: 60px;
+                    z: drag-from == i - 1 ? 5 : 0;
+                    TrackTile {
+                        y: drag-from == i - 1 ? drag-dy : 0;
+                        track: t;
+                        index: i - 1;
+                        list: "playlist";
+                        drag-handle: Lib.pl-kind != "discover" && Lib.pl-tracks.length > 2;
+                        drag-moved(dy) => { drag-from = i - 1; drag-dy = dy; }
+                        drag-done(dy) => {
+                            if (drag-from >= 0) {
+                                Lib.reorder-playlist(i - 1, i - 1 + round(dy / 60px));
+                            }
+                            drag-from = -1;
+                            drag-dy = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Songs of one artist or album.
+export component TrackListPage inherits Rectangle {
+    ListView {
+        for t[i] in Lib.tl-tracks: VerticalLayout {
+            padding-bottom: i == Lib.tl-tracks.length - 1 ? Layout.bottom-pad : 0;
+            if i == 0: VerticalLayout {
+                padding-left: 32px;
+                padding-right: 32px;
+                padding-top: 40px;
+                padding-bottom: 32px;
+                if Nav.can-pop: HorizontalLayout {
+                    alignment: start;
+                    padding-bottom: 16px;
+                    IconButton {
+                        icon: Icons.arrow-back;
+                        size: 36px;
+                        fill: Theme.text.with-alpha(0.08);
+                        clicked => { Nav.pop(); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 24px;
+                    Cover {
+                        id: Lib.tl-cover;
+                        size: 176px;
+                        radius: Radius.hero;
+                        circle: Lib.tl-artist;
+                    }
+                    VerticalLayout {
+                        alignment: end;
+                        spacing: 8px;
+                        Txt {
+                            text: Lib.tl-label;
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Theme.text.with-alpha(0.7);
+                        }
+                        Txt {
+                            text: Lib.tl-title;
+                            font-size: 44px;
+                            font-weight: 800;
+                            letter-spacing: -1.4px;
+                            overflow: elide;
+                        }
+                        Txt {
+                            text: Lib.tl-meta;
+                            font-size: 13px;
+                            color: Theme.muted;
+                        }
+                        HorizontalLayout {
+                            padding-top: 16px;
+                            spacing: 8px;
+                            alignment: start;
+                            Button {
+                                text: "Play";
+                                icon: Icons.play-arrow;
+                                has-icon: true;
+                                clicked => { Lib.play-all("tracklist", false); }
+                            }
+                            Button {
+                                kind: 1;
+                                text: "Shuffle";
+                                icon: Icons.shuffle;
+                                has-icon: true;
+                                clicked => { Lib.play-all("tracklist", true); }
+                            }
+                        }
+                    }
+                }
+            }
+            if i > 0: HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                TrackTile {
+                    track: t;
+                    index: i - 1;
+                    list: "tracklist";
+                    show-album: Lib.tl-artist && Theme.wide-rows;
+                }
+            }
+        }
+    }
+}
