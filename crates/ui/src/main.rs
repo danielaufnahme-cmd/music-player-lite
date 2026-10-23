@@ -63,6 +63,7 @@ fn start_server(_rt: &tokio::runtime::Runtime) -> Option<tokio::sync::oneshot::S
 fn headless() -> i32 {
     #[cfg(feature = "embedded-server")]
     {
+        geonix_server::init_logging();
         let rt = runtime();
         let cfg = geonix_server::ServerConfig::from_env();
         match rt.block_on(geonix_server::run(cfg, geonix_server::shutdown_signal())) {

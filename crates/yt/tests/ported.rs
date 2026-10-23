@@ -59,7 +59,7 @@ fn progress_lines_become_progress_events() {
     let est = downloader::parse_progress_line("GXPROG downloading 100 NA 400 NA").unwrap();
     assert_eq!(m.map_at(&est, now + std::time::Duration::from_secs(1)).unwrap(), json!({"percent": 23.8, "speed": null}));
     let fin = downloader::parse_progress_line("GXPROG finished 1048576 1048576 NA NA").unwrap();
-    assert_eq!(m.map_at(&fin, now).unwrap(), json!({"percent": 95.0, "speed": null}));
+    assert_eq!(m.map_at(&fin, now).unwrap(), json!({"percent": 95.0, "speed": "converting"}), "conversion phase is shown");
     assert!(downloader::parse_progress_line("[download] 5%").is_none());
 }
 
@@ -200,6 +200,61 @@ async fn album_tracks_inherit_album_name_and_cover() {
     let t = &info["tracks"][0];
     assert_eq!((t["album"].as_str(), t["artist"].as_str(), t["duration_sec"].as_i64()), (Some("Discovery"), Some("Daft Punk"), Some(320)));
     assert!(t["thumbnail_url"].as_str().unwrap().starts_with("https://img/cover"));
+}
+
+/// A stand-in yt-dlp that prints a flat playlist (like `-J --flat-playlist`).
+#[cfg(unix)]
+fn fake_flat_ytdlp(name: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("geonix-fake-ytdlp-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("yt-dlp");
+    let flat = json!({"title": "Gym mix", "entries": [
+        {"id": "aaaaaaaaaaa", "title": "One", "channel": "Chan", "duration": 61.0},
+        {"id": "bbbbbbbbbbb", "title": "Two", "uploader": "Up", "duration": 120},
+        {"id": "aaaaaaaaaaa", "title": "One", "channel": "Chan"},
+    ]});
+    std::fs::write(&path, format!("#!/bin/sh\necho '{flat}'\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+#[cfg(unix)]
+fn assert_flat_playlist(info: &Value) {
+    assert_eq!(info["title"], "Gym mix");
+    let ids: Vec<_> = info["tracks"].as_array().unwrap().iter().map(|t| t["video_id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["aaaaaaaaaaa", "bbbbbbbbbbb"], "duplicates removed, order kept");
+    assert_eq!((info["tracks"][0]["artist"].as_str(), info["tracks"][0]["duration_sec"].as_i64()), (Some("Chan"), Some(61)));
+    assert_eq!(info["tracks"][1]["artist"], "Up");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn playlist_falls_back_to_ytdlp_when_youtube_music_fails() {
+    let ytdlp = fake_flat_ytdlp("fail");
+    let yt = Yt::with_transport(YtConfig { ytdlp: Some(ytdlp.clone()), ..Default::default() }, Arc::new(Replay::default()));
+    let url = "https://www.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz&si=x";
+    assert_flat_playlist(&yt.handle("playlist_info", json!({ "url": url }), |_| {}).await.unwrap());
+    std::fs::remove_dir_all(ytdlp.parent().unwrap()).ok();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn playlist_falls_back_to_ytdlp_when_youtube_music_shows_no_songs() {
+    let ytdlp = fake_flat_ytdlp("empty");
+    let mut replay = Replay::default();
+    replay.add_innertube(
+        "browse",
+        json!({"contents": {"twoColumnBrowseResultsRenderer": {
+            "tabs": [{"tabRenderer": {"content": {"sectionListRenderer": {"contents": [{"musicResponsiveHeaderRenderer": {
+                "title": {"runs": [{"text": "Not music"}]}}}]}}}}],
+            "secondaryContents": {"sectionListRenderer": {"contents": [{"musicPlaylistShelfRenderer": {"contents": []}}]}},
+        }}}),
+    );
+    let yt = Yt::with_transport(YtConfig { ytdlp: Some(ytdlp.clone()), ..Default::default() }, Arc::new(replay));
+    let info = yt.handle("playlist_info", json!({"url": "https://m.youtube.com/playlist?list=PLx0sYbCqOb8TB"}), |_| {}).await.unwrap();
+    assert_flat_playlist(&info);
+    std::fs::remove_dir_all(ytdlp.parent().unwrap()).ok();
 }
 
 #[tokio::test]

@@ -1,10 +1,8 @@
 //! Headless Geonix lite server (systemd, phone page, device sync).
 //! Configuration comes from the environment; see the library docs.
 
-use tracing_subscriber::EnvFilter;
-
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))).init();
+    geonix_server::init_logging();
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(16)

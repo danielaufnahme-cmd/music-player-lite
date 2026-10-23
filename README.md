@@ -82,9 +82,15 @@ yt-dlp and ffmpeg only run while something downloads.
   Click a result to preview it, or use the download button.
 - **Playlist import:** paste a YouTube or YouTube Music playlist link into Search to
   preview it, then "Download all". A local playlist with the same name and order
-  appears immediately and fills up as songs finish downloading.
-- **Download queue:** up to 4 downloads at once (3 by default), with live progress and
-  speed. Failed downloads show the reason and a Retry button. Songs already in your
+  appears immediately and fills up as songs finish downloading. A song link pasted
+  into Search shows just that song.
+- **Links:** `music.youtube.com`, `www.youtube.com`, `m.youtube.com` and `youtu.be`
+  links work, with or without `https://` and extra parameters like `&si=`:
+  `playlist?list=…`, album pages (`browse/MPRE…`), `watch?v=…`, `shorts/…`. A
+  `watch?v=…&list=…` link counts as the playlist in Search; the phone page asks.
+  Regular YouTube playlists work too, not only YouTube Music ones.
+- **Download queue:** up to 4 downloads at once (3 by default), with live progress,
+  speed and a "converting" step while the MP3 is made. Failed downloads show the reason and a Retry button. Songs already in your
   library are skipped.
 - **Library:** Songs, Artists, Albums and Playlists views, an instant text filter and
   sorting. Play counts and the last-played time are tracked.

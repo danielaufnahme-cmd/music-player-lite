@@ -141,6 +141,35 @@ mod tests {
     }
 
     #[test]
+    fn every_common_playlist_link_form_gives_the_same_source() {
+        let want = Ok(LinkKind::Playlist { source: "https://music.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz".into() });
+        for url in [
+            "https://www.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz",
+            "https://music.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz&si=AbC_123",
+            "https://m.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz&feature=share",
+            "https://youtube.com/playlist?feature=shared&list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz",
+            "www.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz",
+            "http://WWW.YOUTUBE.COM/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz#top",
+        ] {
+            assert_eq!(classify(url), want, "{url}");
+        }
+        for url in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz&index=3&si=x",
+            "https://youtu.be/dQw4w9WgXcQ?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz&si=x",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz",
+        ] {
+            assert_eq!(
+                classify(url),
+                Ok(LinkKind::Ambiguous {
+                    video_id: "dQw4w9WgXcQ".into(),
+                    playlist_source: "https://music.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz".into()
+                }),
+                "{url}"
+            );
+        }
+    }
+
+    #[test]
     fn song_inside_playlist_is_ambiguous_but_mixes_are_songs() {
         assert_eq!(
             classify("https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=OLAK5uy_abc"),

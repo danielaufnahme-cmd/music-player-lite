@@ -87,6 +87,39 @@ pub async fn pipe(program: &Path, args: &[&str], input: Vec<u8>, timeout: Durati
     Ok(out.stdout)
 }
 
+/// Extra yt-dlp options so YouTube's JavaScript challenges get solved: allow
+/// fetching the EJS solver scripts when they aren't bundled or installed, and
+/// use Node when Deno (yt-dlp's default runtime) is missing. Without a solved
+/// challenge yt-dlp is slow and formats go missing. yt-dlp builds that don't
+/// know these options get none. Probed once per process.
+pub async fn ytdlp_js_args(ytdlp: &Path) -> Vec<String> {
+    static ARGS: tokio::sync::OnceCell<Vec<String>> = tokio::sync::OnceCell::const_new();
+    ARGS.get_or_init(|| async {
+        match run(ytdlp, &["--help".to_string()], Duration::from_secs(20)).await {
+            Ok(out) if out.success => js_args_from_help(
+                &String::from_utf8_lossy(&out.stdout),
+                on_path(&exe_name("deno")).is_some(),
+                on_path(&exe_name("node")).is_some(),
+            ),
+            _ => Vec::new(),
+        }
+    })
+    .await
+    .clone()
+}
+
+/// The JS-challenge options for a yt-dlp whose `--help` is `help`.
+pub fn js_args_from_help(help: &str, has_deno: bool, has_node: bool) -> Vec<String> {
+    let mut args = Vec::new();
+    if help.contains("--remote-components") {
+        args.extend(["--remote-components".to_string(), "ejs:github".to_string()]);
+    }
+    if help.contains("--js-runtimes") && !has_deno && has_node {
+        args.extend(["--js-runtimes".to_string(), "node".to_string()]);
+    }
+    args
+}
+
 /// The first `ERROR:` line yt-dlp printed, or the last non-empty stderr line.
 pub fn ytdlp_error(stderr: &str) -> Option<String> {
     stderr
@@ -94,4 +127,18 @@ pub fn ytdlp_error(stderr: &str) -> Option<String> {
         .find(|l| l.starts_with("ERROR:"))
         .or_else(|| stderr.lines().rev().find(|l| !l.trim().is_empty()))
         .map(|l| l.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn js_args_only_for_yt_dlp_that_knows_them() {
+        let new = "  --js-runtimes RUNTIME[:PATH]\n  --remote-components COMPONENT\n";
+        assert_eq!(js_args_from_help(new, true, true), ["--remote-components", "ejs:github"]);
+        assert_eq!(js_args_from_help(new, false, true), ["--remote-components", "ejs:github", "--js-runtimes", "node"]);
+        assert_eq!(js_args_from_help(new, false, false), ["--remote-components", "ejs:github"]);
+        assert!(js_args_from_help("  --flat-playlist\n", false, true).is_empty());
+    }
 }

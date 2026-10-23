@@ -68,6 +68,10 @@ pub const YTM_DOMAIN: &str = "https://music.youtube.com";
 const YTM_BASE_API: &str = "https://music.youtube.com/youtubei/v1/";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0";
 
+/// One InnerTube request. Short, so a slow YouTube Music fails fast and the
+/// yt-dlp fallback (or a clear error) follows instead of a long wait.
+const INNERTUBE_TIMEOUT: Duration = Duration::from_secs(15);
+
 /// The real network transport (reqwest + rustls).
 pub struct HttpTransport {
     http: reqwest::Client,
@@ -102,7 +106,7 @@ impl HttpTransport {
                 .get(YTM_DOMAIN)
                 .header("user-agent", USER_AGENT)
                 .header("accept", "*/*")
-                .timeout(Duration::from_secs(20))
+                .timeout(Duration::from_secs(8))
                 .send()
                 .await
                 .ok()?
@@ -202,7 +206,7 @@ impl Transport for HttpTransport {
                 .header("content-type", "application/json")
                 .header("origin", YTM_DOMAIN)
                 .header("X-Goog-Visitor-Id", visitor)
-                .timeout(Duration::from_secs(30))
+                .timeout(INNERTUBE_TIMEOUT)
                 .body(body.to_string())
                 .send()
                 .await

@@ -218,6 +218,14 @@ pub async fn serve(
     Ok(())
 }
 
+/// Log to stdout (the journal under systemd) at "info", or as `RUST_LOG` says.
+/// Colours only on a terminal. Does nothing if logging is already set up.
+pub fn init_logging() {
+    use std::io::IsTerminal;
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).with_ansi(std::io::stdout().is_terminal()).try_init();
+}
+
 /// Ctrl+C or SIGTERM; for the headless binary and embedders that want it.
 pub async fn shutdown_signal() {
     let ctrl_c = async {

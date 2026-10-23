@@ -1,6 +1,7 @@
 //! Download queue: at most 3 downloads run at once. Every state change is
 //! saved to the database and broadcast to `GET /api/downloads/events`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -18,6 +19,11 @@ use crate::provider::Music;
 pub const MAX_PARALLEL: usize = crate::settings::MAX_PARALLEL as usize;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const INFO_TIMEOUT: Duration = Duration::from_secs(120);
+/// An import within this time after its preview reuses the preview's songs
+/// instead of asking YouTube again.
+const INFO_REUSE: Duration = Duration::from_secs(300);
+/// At most this many progress saves/broadcasts per download.
+const PROGRESS_EVERY: Duration = Duration::from_millis(300);
 
 #[derive(Clone)]
 pub struct DownloadManager {
@@ -30,6 +36,8 @@ pub struct DownloadManager {
     music_dir: PathBuf,
     covers_dir: PathBuf,
     after: Option<AfterDownloads>,
+    /// Recent playlist previews by URL (see INFO_REUSE).
+    recent_info: Arc<std::sync::Mutex<HashMap<String, (Instant, PlaylistInfo)>>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +127,7 @@ impl DownloadManager {
             music_dir,
             covers_dir,
             after,
+            recent_info: Arc::default(),
         };
         // Default limit 3 until the settings say otherwise.
         if let Ok(p) = mgr.permits.clone().try_acquire_many_owned((MAX_PARALLEL - 3) as u32) {
@@ -262,17 +271,36 @@ impl DownloadManager {
         d.updated_at = now_ms();
         self.save(&d);
 
-        // Forward progress events, throttled so the DB isn't hammered.
+        // Forward progress events, throttled so the DB isn't hammered. The
+        // latest update is always saved once the throttle window ends, so a
+        // fast download doesn't sit at its first value (often 0 %) while the
+        // MP3 conversion runs.
         let (ptx, mut prx) = mpsc::unbounded_channel::<crate::provider::Progress>();
         let progress_mgr = self.clone();
         let mut progress_dl = d.clone();
         let forwarder = tokio::spawn(async move {
-            let mut last = Instant::now() - Duration::from_secs(1);
-            while let Some(p) = prx.recv().await {
-                progress_dl.progress = p.percent.clamp(0.0, 100.0);
-                progress_dl.speed = p.speed;
-                if last.elapsed() >= Duration::from_millis(300) {
+            let mut last = Instant::now() - PROGRESS_EVERY;
+            let mut pending = false;
+            loop {
+                let next = if pending {
+                    let wait = (last + PROGRESS_EVERY).saturating_duration_since(Instant::now());
+                    tokio::time::timeout(wait, prx.recv()).await.ok()
+                } else {
+                    Some(prx.recv().await)
+                };
+                match next {
+                    Some(Some(p)) => {
+                        progress_dl.progress = p.percent.clamp(0.0, 100.0);
+                        progress_dl.speed = p.speed;
+                        pending = true;
+                    }
+                    Some(None) => break,
+                    // Throttle window over: save what we have.
+                    None => {}
+                }
+                if pending && last.elapsed() >= PROGRESS_EVERY {
                     last = Instant::now();
+                    pending = false;
                     progress_dl.updated_at = now_ms();
                     progress_mgr.save(&progress_dl);
                 }
@@ -291,6 +319,9 @@ impl DownloadManager {
         });
         let result = self.music.request_with_progress(cmd, Some(ptx), DOWNLOAD_TIMEOUT).await;
         forwarder.abort();
+        // Wait until it really stopped, so a late progress save can't
+        // overwrite the final state below.
+        let _ = forwarder.await;
 
         d.updated_at = now_ms();
         d.speed = None;
@@ -339,7 +370,21 @@ impl DownloadManager {
         for t in &info.tracks {
             self.db.upsert_track_meta(t)?;
         }
+        if let Ok(mut recent) = self.recent_info.lock() {
+            recent.retain(|_, (at, _)| at.elapsed() < INFO_REUSE);
+            recent.insert(url.to_string(), (Instant::now(), info.clone()));
+        }
         Ok(info)
+    }
+
+    /// The preview fetched for `url` within INFO_REUSE, else a fresh one.
+    async fn playlist_info_for_import(&self, url: &str) -> ApiResult<PlaylistInfo> {
+        let recent =
+            self.recent_info.lock().ok().and_then(|r| r.get(url).filter(|(at, _)| at.elapsed() < INFO_REUSE).map(|(_, i)| i.clone()));
+        match recent {
+            Some(info) => Ok(info),
+            None => self.playlist_info(url).await,
+        }
     }
 
     /// Import a YouTube playlist into a new or an existing local playlist.
@@ -350,7 +395,7 @@ impl DownloadManager {
         if let ImportTarget::Existing(id) = target {
             self.check_import_target(id)?;
         }
-        let info = self.playlist_info(url).await?;
+        let info = self.playlist_info_for_import(url).await?;
         if info.tracks.is_empty() {
             return Err(ApiError::bad_request("that playlist has no available songs"));
         }
@@ -452,6 +497,52 @@ fn has_file(track: Option<&Track>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Downloads fast (progress lines within a few ms), then converts for a while.
+    struct FastThenConvert(PathBuf);
+
+    impl crate::provider::Provider for FastThenConvert {
+        fn handle<'a>(
+            &'a self,
+            _cmd: &'a str,
+            _params: serde_json::Value,
+            progress: crate::provider::ProgressFn,
+        ) -> crate::provider::BoxFuture<'a, Result<serde_json::Value, String>> {
+            Box::pin(async move {
+                progress(json!({"percent": 0.0, "speed": "1MiB/s"}));
+                progress(json!({"percent": 60.0, "speed": "9MiB/s"}));
+                progress(json!({"percent": 95.0, "speed": "converting"}));
+                tokio::time::sleep(Duration::from_millis(900)).await;
+                let file = self.0.join("song.mp3");
+                std::fs::write(&file, b"ID3").unwrap();
+                Ok(json!({"video_id": "aaaaaaaaaaa", "title": "Song", "artist": "A", "file_path": file.to_string_lossy()}))
+            })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn latest_progress_is_shown_while_converting() {
+        let dir = std::env::temp_dir().join(format!("geonix-progress-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Arc::new(Db::open_in_memory().unwrap());
+        let mgr = DownloadManager::new(db, Music::new(FastThenConvert(dir.clone())), dir.clone(), dir.join("covers"), None);
+        let mut events = mgr.subscribe();
+        mgr.enqueue("aaaaaaaaaaa", None).unwrap();
+        let mut seen = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            let Ok(Ok(d)) = tokio::time::timeout(Duration::from_secs(5), events.recv()).await else { break };
+            let finished = d.status == "done" || d.status == "failed";
+            seen.push((d.status, d.progress, d.speed));
+            if finished {
+                break;
+            }
+        }
+        let converting = seen.iter().position(|(st, p, sp)| st == "downloading" && *p == 95.0 && sp.as_deref() == Some("converting"));
+        assert!(converting.is_some(), "the conversion phase must reach the clients: {seen:?}");
+        assert_eq!(seen.last().map(|(st, p, _)| (st.as_str(), *p)), Some(("done", 100.0)), "{seen:?}");
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     #[test]
     fn playlist_name_prefers_custom_name() {

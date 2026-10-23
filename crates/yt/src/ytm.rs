@@ -252,6 +252,7 @@ pub async fn song_info(t: &dyn Transport, ytdlp: Option<&Path>, video_id: &str) 
             "--no-playlist".into(),
             format!("https://music.youtube.com/watch?v={video_id}"),
         ],
+        YTDLP_SONG_TIMEOUT,
     )
     .await?;
     let Some(title) = first_truthy(&info, &["track", "title"]) else {
@@ -284,10 +285,16 @@ pub async fn playlist_info(t: &dyn Transport, ytdlp: Option<&Path>, url: &str) -
         return album_info(t, &album).await;
     }
     let playlist_id = extract_playlist_id(url)?;
+    // YouTube Music reads most public playlists, also regular YouTube ones.
+    // yt-dlp covers the rest: errors and playlists YouTube Music shows empty.
     let (title, items) = match innertube::get_playlist(t, &playlist_id).await {
-        Ok(p) => {
+        Ok(p) if !dedupe_tracks(&p.tracks).is_empty() => {
             let title = if p.title.is_empty() { "Imported playlist".to_string() } else { p.title };
             (json!(title), p.tracks)
+        }
+        Ok(_) => {
+            eprintln!("geonix-yt: YouTube Music shows playlist {playlist_id} without songs; trying yt-dlp");
+            playlist_via_ytdlp(require_ytdlp(ytdlp)?, &playlist_id).await?
         }
         Err(e) => {
             eprintln!("geonix-yt: YouTube Music could not read playlist {playlist_id} ({e}); trying yt-dlp");
@@ -318,6 +325,7 @@ async fn playlist_via_ytdlp(ytdlp: &Path, playlist_id: &str) -> Result<(Value, V
     let info = ytdlp_json(
         ytdlp,
         &["-J".into(), "--flat-playlist".into(), "--no-warnings".into(), format!("https://www.youtube.com/playlist?list={playlist_id}")],
+        YTDLP_PLAYLIST_TIMEOUT,
     )
     .await?;
     Ok(playlist_from_ytdlp_info(&info))
@@ -376,6 +384,7 @@ pub async fn stream_url(ytdlp: Option<&Path>, video_id: &str) -> Result<Value> {
             "--no-playlist".into(),
             format!("https://music.youtube.com/watch?v={video_id}"),
         ],
+        YTDLP_SONG_TIMEOUT,
     )
     .await?;
     let Some(url) = first_truthy(&info, &["url"]) else {
@@ -389,9 +398,16 @@ pub fn require_ytdlp(ytdlp: Option<&Path>) -> Result<&Path> {
     ytdlp.ok_or_else(|| Error::Msg("yt-dlp was not found (install it or set GEONIX_YTDLP)".into()))
 }
 
-/// Run yt-dlp and parse the (last) JSON object it printed.
-async fn ytdlp_json(ytdlp: &Path, args: &[String]) -> Result<Value> {
-    let out = tools::run(ytdlp, args, Duration::from_secs(120)).await?;
+/// yt-dlp time limit for one song's metadata or stream URL.
+const YTDLP_SONG_TIMEOUT: Duration = Duration::from_secs(40);
+/// yt-dlp time limit for a whole (flat) playlist.
+const YTDLP_PLAYLIST_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Run yt-dlp (with the JS-challenge options) and parse the (last) JSON object it printed.
+async fn ytdlp_json(ytdlp: &Path, args: &[String], timeout: Duration) -> Result<Value> {
+    let mut all = tools::ytdlp_js_args(ytdlp).await;
+    all.extend_from_slice(args);
+    let out = tools::run(ytdlp, &all, timeout).await?;
     if !out.success {
         return Err(Error::Msg(tools::ytdlp_error(&out.stderr).unwrap_or_else(|| "yt-dlp failed".into())));
     }

@@ -754,6 +754,7 @@ impl App {
             return;
         }
         let playlist = crate::api::looks_like_playlist_url(&q);
+        let song_link = !playlist && crate::api::looks_like_youtube_link(&q);
         lib.set_search_state(if playlist { 5 } else { 1 });
         let api = self.api.clone();
         self.spawn(async move {
@@ -783,6 +784,25 @@ impl App {
                         Err(e) => {
                             a.win.global::<crate::Lib>().set_search_error(crate::api::friendly_import_error(&e).into());
                             a.win.global::<crate::Lib>().set_search_state(7);
+                        }
+                    }
+                });
+            } else if song_link {
+                // A pasted song link: show that one song, ready to download.
+                let r = api.song_from_link(&q).await;
+                post(move |a| {
+                    if seq != a.search_seq {
+                        return;
+                    }
+                    match r {
+                        Ok(t) => {
+                            a.win.global::<crate::Lib>().set_search_state(2);
+                            a.m_search.set_vec(vec![track_item(&t)]);
+                            a.search_results = vec![t];
+                        }
+                        Err(e) => {
+                            a.win.global::<crate::Lib>().set_search_error(e.to_string().into());
+                            a.win.global::<crate::Lib>().set_search_state(4);
                         }
                     }
                 });

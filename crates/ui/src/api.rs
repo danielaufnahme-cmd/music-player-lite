@@ -421,6 +421,15 @@ impl Api {
         Ok(Lyrics::from_json(&self.get(&format!("/api/tracks/{id}/lyrics"), &[]).await?))
     }
 
+    /// The song a YouTube link points at (song links, `youtu.be`, shorts, …).
+    pub async fn song_from_link(&self, url: &str) -> ApiResult<Track> {
+        let v = self.get("/api/resolve", &[("url", url.into()), ("as", "song".into())]).await?;
+        match v.get("kind").and_then(Value::as_str) {
+            Some("song") => Self::parse(v.get("track").cloned().unwrap_or(Value::Null)),
+            _ => Err(ApiError { status: 400, message: "That link isn’t a song.".into() }),
+        }
+    }
+
     pub async fn playlist_info(&self, url: &str) -> ApiResult<PlaylistPreview> {
         Self::parse(self.get("/api/playlist-info", &[("url", url.into())]).await?)
     }
@@ -537,9 +546,20 @@ impl Api {
     }
 }
 
+/// A YouTube / YouTube Music link (with or without `https://`), not a search.
+pub fn looks_like_youtube_link(text: &str) -> bool {
+    let t = text.trim().to_ascii_lowercase();
+    !t.contains(char::is_whitespace) && (t.contains("youtube.com/") || t.contains("youtu.be/"))
+}
+
+/// A playlist or album link: `list=` (except endless auto-generated mixes,
+/// `list=RD…`, which count as the song) or a YouTube Music album page.
 pub fn looks_like_playlist_url(text: &str) -> bool {
     let t = text.trim();
-    (t.starts_with("http://") || t.starts_with("https://")) && t.contains("list=")
+    let lower = t.to_ascii_lowercase();
+    let is_link = t.starts_with("http://") || t.starts_with("https://") || looks_like_youtube_link(t);
+    let list = t.split(['?', '&', '#']).find_map(|p| p.strip_prefix("list=")).filter(|l| !l.is_empty());
+    is_link && (list.is_some_and(|l| !l.starts_with("RD")) || lower.contains("/browse/mpre") || lower.contains("/browse/vl"))
 }
 
 /// Turns backend errors into something a person can act on (playlist_import.dart).
@@ -586,8 +606,41 @@ mod tests {
 
     #[test]
     fn playlist_url() {
-        assert!(looks_like_playlist_url("https://music.youtube.com/playlist?list=PL1"));
-        assert!(!looks_like_playlist_url("lofi beats"));
+        for ok in [
+            "https://music.youtube.com/playlist?list=PL1",
+            "https://www.youtube.com/playlist?list=PLAp_cIInOnUPbid-apz4wZmlvg6G42HSz",
+            "https://m.youtube.com/playlist?list=PL1&feature=share",
+            "music.youtube.com/playlist?list=PL1&si=abc",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1",
+            "https://music.youtube.com/browse/MPREb_4pL8gzRtw1p",
+            "https://music.youtube.com/browse/VLPL1",
+        ] {
+            assert!(looks_like_playlist_url(ok), "{ok}");
+        }
+        for not in [
+            "lofi beats",
+            "https://youtu.be/dQw4w9WgXcQ?si=x",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&playlist=1",
+        ] {
+            assert!(!looks_like_playlist_url(not), "{not}");
+        }
+    }
+
+    #[test]
+    fn youtube_links() {
+        for ok in [
+            "https://youtu.be/dQw4w9WgXcQ?si=x",
+            "youtu.be/dQw4w9WgXcQ",
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ&feature=share",
+            "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+        ] {
+            assert!(looks_like_youtube_link(ok), "{ok}");
+        }
+        for not in ["daft punk", "youtube.com/ songs", "https://example.com/watch?v=x"] {
+            assert!(!looks_like_youtube_link(not), "{not}");
+        }
     }
 
     /// Tiny HTTP server answering canned responses (one per connection).

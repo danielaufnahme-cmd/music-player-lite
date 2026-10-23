@@ -95,6 +95,9 @@ pub fn clean_error(message: &str) -> String {
 /// Marker for our `--progress-template` lines.
 const PROGRESS_TAG: &str = "GXPROG";
 
+/// `speed` text while the downloaded audio is converted to MP3.
+pub const CONVERTING: &str = "converting";
+
 /// One parsed progress line from yt-dlp.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Progress {
@@ -151,7 +154,8 @@ impl ProgressMapper {
                 let percent = if total > 0.0 { done / total * 95.0 } else { 0.0 };
                 Some(json!({"percent": py_round(percent, 1), "speed": human_speed(p.speed)}))
             }
-            "finished" => Some(json!({"percent": 95.0, "speed": null})),
+            // The audio is in; yt-dlp now converts it to MP3 (no progress lines).
+            "finished" => Some(json!({"percent": 95.0, "speed": CONVERTING})),
             _ => None,
         }
     }
@@ -392,7 +396,10 @@ pub async fn download_with(
 
     let tmp = TempDir::new(&format!("geonix-{video_id}-"))?;
     for attempt in 1..=MAX_ATTEMPTS {
-        let args = ytdlp_args_with(video_id, &tmp.0, attempt, tools_.ffmpeg, opts.kbps);
+        let mut args = ytdlp_args_with(video_id, &tmp.0, attempt, tools_.ffmpeg, opts.kbps);
+        // Options go before the "--" that ends them.
+        let at = args.len() - 2;
+        args.splice(at..at, tools::ytdlp_js_args(ytdlp).await);
         match run_attempt(ytdlp, &args, progress).await {
             Ok(()) => break,
             Err(raw) => {
