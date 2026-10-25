@@ -77,6 +77,7 @@ component PreviewChip inherits Rectangle {
 // Link field + preview list for importing a YouTube Music playlist.
 component ImportField inherits VerticalLayout {
     spacing: 14px;
+    private property <bool> unmatched-open;
     url := Field {
         label: "YouTube Music playlist link";
         text: Ui.import-url;
@@ -159,6 +160,46 @@ component ImportField inherits VerticalLayout {
                             Txt { text: t.artist; font-size: Type.body-small; color: Theme.muted; overflow: elide; }
                         }
                         VerticalLayout { alignment: center; PreviewChip { status: t.status; } }
+                    }
+                }
+            }
+        }
+        if Ui.import-note != "": Txt { text: Ui.import-note; font-size: Type.body-small; color: Theme.muted; wrap: word-wrap; }
+        if Ui.import-unmatched.length > 0: VerticalLayout {
+            spacing: 6px;
+            Rectangle {
+                height: 20px;
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 4px;
+                    Txt {
+                        text: Ui.import-unmatched.length == 1 ? "1 song couldn’t be found" : Ui.import-unmatched.length + " songs couldn’t be found";
+                        font-size: Type.body-small;
+                        font-weight: 600;
+                        color: Theme.muted;
+                    }
+                    Icon {
+                        width: 16px;
+                        height: 16px;
+                        source: unmatched-open ? Icons.keyboard-arrow-down : Icons.chevron-right;
+                        colorize: Theme.muted;
+                    }
+                }
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { unmatched-open = !unmatched-open; }
+                }
+            }
+            if unmatched-open: Rectangle {
+                height: min(110px, Ui.import-unmatched.length * 20px + 12px);
+                border-radius: Radius.control;
+                background: Theme.surface-high.with-alpha(0.45);
+                Flickable {
+                    content-height: ulist.preferred-height;
+                    ulist := VerticalLayout {
+                        padding: 6px;
+                        padding-left: 10px;
+                        for u in Ui.import-unmatched: Txt { height: 20px; text: u; font-size: Type.body-small; color: Theme.muted; overflow: elide; }
                     }
                 }
             }

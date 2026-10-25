@@ -3,7 +3,7 @@
 use slint::ComponentHandle;
 
 use crate::app::{with_app, App, Route, CLOCK, DL};
-use crate::{AppWindow, Lib, Nav, Page, Player, Ui};
+use crate::{AppWindow, Lib, Nav, Page, Player, Pod, Ui};
 
 fn on(f: impl FnOnce(&mut App) + 'static) {
     with_app(f);
@@ -73,6 +73,7 @@ pub fn wire(win: &AppWindow) {
                 Page::Library => Route::Library,
                 Page::Downloads => Route::Downloads,
                 Page::Settings => Route::Settings,
+                Page::Podcasts => Route::Podcasts,
                 _ => Route::Home,
             })
         })
@@ -188,6 +189,20 @@ pub fn wire(win: &AppWindow) {
         })
     });
     lib.on_dl_select_all(|| on(|a| a.dl_select_all()));
+
+    let pod = win.global::<Pod>();
+    pod.on_set_query(|q| on(move |a| a.pod_set_query(q.to_string())));
+    pod.on_submit(|| on(|a| a.pod_submit()));
+    pod.on_retry(|| on(|a| a.pod_retry()));
+    pod.on_open_sub(|i| on(move |a| a.pod_open_sub(i as usize)));
+    pod.on_open_hit(|i| on(move |a| a.pod_open_hit(i as usize)));
+    pod.on_subscribe_hit(|i| on(move |a| a.pod_subscribe_hit(i as usize)));
+    pod.on_add_link(|| on(|a| a.pod_submit()));
+    pod.on_unsubscribe(|| on(|a| a.pod_unsubscribe()));
+    pod.on_refresh(|| on(|a| a.pod_refresh()));
+    pod.on_play_episode(|i| on(move |a| a.pod_play(i as usize)));
+    pod.on_download_episode(|i| on(move |a| a.pod_download(i as usize)));
+    pod.on_delete_episode(|i| on(move |a| a.pod_delete_file(i as usize)));
 
     let ui = win.global::<Ui>();
     ui.on_open_track_menu(|l, i, x, y| on(move |a| a.open_track_menu(l.to_string(), i as usize, x, y)));

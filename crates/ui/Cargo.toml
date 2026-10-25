@@ -34,6 +34,7 @@ futures-util = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+jpeg-decoder = { version = "0.3", default-features = false }
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
 geonix-server = { path = "../server", optional = true }
 geonix-player = { path = "../player", optional = true }

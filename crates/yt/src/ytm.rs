@@ -230,6 +230,15 @@ pub async fn album_info(t: &dyn Transport, browse_id: &str) -> Result<Value> {
 
 /// Metadata of one song (title, artist, album, duration, cover).
 pub async fn song_info(t: &dyn Transport, ytdlp: Option<&Path>, video_id: &str) -> Result<Value> {
+    if is_soundcloud_id(video_id) {
+        let info = ytdlp_json(
+            require_ytdlp(ytdlp)?,
+            &["-J".into(), "--no-warnings".into(), "--no-playlist".into(), watch_url(video_id)],
+            YTDLP_SONG_TIMEOUT,
+        )
+        .await?;
+        return crate::providers::soundcloud_track(&info).ok_or_else(|| "Couldn't find that song".into());
+    }
     match innertube::get_watch_playlist(t, video_id, 1, false).await {
         Ok(data) => {
             for item in &data.tracks {
@@ -369,6 +378,20 @@ pub async fn related(t: &dyn Transport, video_id: &str, limit: usize) -> Result<
     Ok((seed, out))
 }
 
+/// Songs from SoundCloud have ids like `sc_293` (the SoundCloud track id) and
+/// are fetched from SoundCloud itself; everything else is a YouTube video id.
+pub fn is_soundcloud_id(video_id: &str) -> bool {
+    video_id.strip_prefix("sc_").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The page yt-dlp reads a song from.
+pub fn watch_url(video_id: &str) -> String {
+    match video_id.strip_prefix("sc_").filter(|_| is_soundcloud_id(video_id)) {
+        Some(n) => format!("https://api.soundcloud.com/tracks/{n}"),
+        None => format!("https://music.youtube.com/watch?v={video_id}"),
+    }
+}
+
 /// Direct audio URL (plus required headers) for previewing a song.
 /// m4a/AAC is preferred because the Rust decoder handles AAC (not opus).
 pub async fn stream_url(ytdlp: Option<&Path>, video_id: &str) -> Result<Value> {
@@ -382,7 +405,7 @@ pub async fn stream_url(ytdlp: Option<&Path>, video_id: &str) -> Result<Value> {
             "bestaudio[ext=m4a]/bestaudio/best".into(),
             "--no-warnings".into(),
             "--no-playlist".into(),
-            format!("https://music.youtube.com/watch?v={video_id}"),
+            watch_url(video_id),
         ],
         YTDLP_SONG_TIMEOUT,
     )
@@ -404,7 +427,7 @@ const YTDLP_SONG_TIMEOUT: Duration = Duration::from_secs(40);
 const YTDLP_PLAYLIST_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Run yt-dlp (with the JS-challenge options) and parse the (last) JSON object it printed.
-async fn ytdlp_json(ytdlp: &Path, args: &[String], timeout: Duration) -> Result<Value> {
+pub(crate) async fn ytdlp_json(ytdlp: &Path, args: &[String], timeout: Duration) -> Result<Value> {
     let mut all = tools::ytdlp_js_args(ytdlp).await;
     all.extend_from_slice(args);
     let out = tools::run(ytdlp, &all, timeout).await?;

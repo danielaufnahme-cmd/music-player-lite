@@ -503,6 +503,10 @@ impl App {
             parts.push(format!("{} {}in library", c.1, if self.import.existing.is_none() { "already " } else { "" }));
             parts.push(format!("{} to download", c.2));
             ui.set_import_summary(parts.join(" · ").into());
+            ui.set_import_unmatched(ModelRc::new(VecModel::from(
+                p.unmatched.iter().map(|s| SharedString::from(s.as_str())).collect::<Vec<_>>(),
+            )));
+            ui.set_import_note(p.note.clone().unwrap_or_default().into());
         }
         match &self.dialog {
             DialogCtx::NewPlaylist { .. } => {

@@ -15,6 +15,8 @@ mod dialogs;
 mod offscreen;
 mod palette;
 mod player;
+mod podcast_api;
+mod podcasts;
 mod prefs;
 mod settings;
 mod tour;
@@ -228,7 +230,10 @@ fn main() {
     }
     win.run().expect("run window");
 
-    app::try_with_app(|a| a.settings.save());
+    app::try_with_app(|a| {
+        a.settings.save();
+        a.pod_save_blocking();
+    });
     if let Some(tx) = shutdown {
         let _ = tx.send(());
     }
@@ -265,7 +270,17 @@ mod ui_tests {
         lib.on_dl_state(|_, _| 1);
         w.global::<Covers>().on_get(|_, _, _, _| slint::Image::default());
         let nav = w.global::<Nav>();
-        for page in [Page::Home, Page::Search, Page::Library, Page::Downloads, Page::Playlist, Page::Artist, Page::Settings] {
+        for page in [
+            Page::Home,
+            Page::Search,
+            Page::Library,
+            Page::Downloads,
+            Page::Playlist,
+            Page::Artist,
+            Page::Settings,
+            Page::Podcasts,
+            Page::Podcast,
+        ] {
             nav.set_page(page);
             w.show().unwrap();
             assert_eq!(nav.get_page(), page);

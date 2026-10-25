@@ -89,6 +89,10 @@ pub struct PlaylistPreview {
     #[serde(deserialize_with = "null_default")]
     pub title: String,
     pub tracks: Vec<Track>,
+    /// Songs of a Spotify / Apple Music / Deezer / SoundCloud list not found on YouTube Music.
+    pub unmatched: Vec<String>,
+    /// e.g. "only first 100 songs"
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -546,10 +550,66 @@ impl Api {
     }
 }
 
+/// A public Spotify / Apple Music / Deezer / SoundCloud link: `Some(true)` for a
+/// playlist or album (short links too, the server follows them), `Some(false)`
+/// for one song. The server (geonix_yt::providers) does the exact reading.
+fn external_link(text: &str) -> Option<bool> {
+    let t = text.trim();
+    if t.is_empty() || t.contains(char::is_whitespace) {
+        return None;
+    }
+    if let Some(rest) = t.strip_prefix("spotify:") {
+        return match rest.split(':').next()? {
+            "playlist" | "album" => Some(true),
+            "track" => Some(false),
+            _ => None,
+        };
+    }
+    let url = reqwest::Url::parse(&if t.contains("://") { t.to_string() } else { format!("https://{t}") }).ok()?;
+    let host = url.host_str()?.to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+    let segs: Vec<&str> = url.path_segments()?.filter(|s| !s.is_empty()).collect();
+    let has_song_param = url.query_pairs().any(|(k, _)| k == "i");
+    match host {
+        "spotify.link" | "spotify.app.link" | "deezer.page.link" | "link.deezer.com" | "on.soundcloud.com" | "soundcloud.app.goo.gl" => {
+            Some(true)
+        }
+        "open.spotify.com" => match segs.iter().find(|s| !s.starts_with("intl-") && **s != "embed")? {
+            &"playlist" | &"album" => Some(true),
+            &"track" => Some(false),
+            _ => None,
+        },
+        "music.apple.com" => match segs.get(1)? {
+            &"playlist" => Some(true),
+            &"album" => Some(!has_song_param),
+            &"song" => Some(false),
+            _ => None,
+        },
+        "deezer.com" => match segs.iter().find(|s| s.len() > 2)? {
+            &"playlist" | &"album" => Some(true),
+            &"track" => Some(false),
+            _ => None,
+        },
+        "soundcloud.com" | "m.soundcloud.com" => match segs.as_slice() {
+            [_, "sets", _, ..] => Some(true),
+            [user, track]
+                if !["discover", "stream", "charts", "search", "you", "upload", "feed", "pages", "settings"].contains(user)
+                    && !["sets", "albums", "tracks", "likes", "reposts", "followers", "following", "popular-tracks", "comments"]
+                        .contains(track) =>
+            {
+                Some(false)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// A YouTube / YouTube Music link (with or without `https://`), not a search.
+/// Spotify, Apple Music, Deezer and SoundCloud song links count too.
 pub fn looks_like_youtube_link(text: &str) -> bool {
     let t = text.trim().to_ascii_lowercase();
-    !t.contains(char::is_whitespace) && (t.contains("youtube.com/") || t.contains("youtu.be/"))
+    (!t.contains(char::is_whitespace) && (t.contains("youtube.com/") || t.contains("youtu.be/"))) || external_link(text) == Some(false)
 }
 
 /// A playlist or album link: `list=` (except endless auto-generated mixes,
@@ -558,6 +618,9 @@ pub fn looks_like_playlist_url(text: &str) -> bool {
     let t = text.trim();
     let lower = t.to_ascii_lowercase();
     let is_link = t.starts_with("http://") || t.starts_with("https://") || looks_like_youtube_link(t);
+    if external_link(t) == Some(true) {
+        return true;
+    }
     let list = t.split(['?', '&', '#']).find_map(|p| p.strip_prefix("list=")).filter(|l| !l.is_empty());
     is_link && (list.is_some_and(|l| !l.starts_with("RD")) || lower.contains("/browse/mpre") || lower.contains("/browse/vl"))
 }
@@ -571,6 +634,9 @@ pub fn friendly_import_error(e: &ApiError) -> String {
     }
     if ["private", "does not exist", "not found", "unavailable", "http error 4", "unable to download"].iter().any(|k| lower.contains(k)) {
         return "This playlist is private, deleted or doesn’t exist. Make sure it’s public or unlisted.".into();
+    }
+    if lower.contains("matched on youtube music") {
+        return "None of those songs could be found on YouTube Music.".into();
     }
     if lower.contains("no available songs") {
         return "That playlist has no songs that can be downloaded.".into();
@@ -624,6 +690,44 @@ mod tests {
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ&playlist=1",
         ] {
             assert!(!looks_like_playlist_url(not), "{not}");
+        }
+    }
+
+    #[test]
+    fn links_of_other_services() {
+        for ok in [
+            "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc",
+            "https://open.spotify.com/intl-de/album/4aawyAB9vmqN3uQ7FjRGTy",
+            "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M",
+            "https://music.apple.com/us/playlist/top-100-global/pl.d25f5d1181894928af76c85c967f8f31",
+            "https://music.apple.com/us/album/discovery/697194953",
+            "https://www.deezer.com/playlist/3155776842",
+            "https://www.deezer.com/en/album/302127",
+            "https://soundcloud.com/forss/sets/soulhack",
+            "https://on.soundcloud.com/AbCdE",
+            "https://spotify.link/AbCdEf",
+        ] {
+            assert!(looks_like_playlist_url(ok), "{ok}");
+            assert!(!looks_like_youtube_link(ok), "{ok} is not a song link");
+        }
+        for song in [
+            "https://open.spotify.com/track/2sFepQNyl1WjpROruP8bJ0?si=x",
+            "spotify:track:2sFepQNyl1WjpROruP8bJ0",
+            "https://music.apple.com/us/album/discovery/697194953?i=697195462",
+            "https://music.apple.com/us/song/harder-better-faster-stronger/697195787",
+            "https://www.deezer.com/en/track/3135556",
+            "https://soundcloud.com/forss/flickermood",
+        ] {
+            assert!(looks_like_youtube_link(song), "{song}");
+            assert!(!looks_like_playlist_url(song), "{song} is not a playlist link");
+        }
+        for not in [
+            "https://open.spotify.com/artist/45dkTj5sMRSjrmBSBeiHym",
+            "https://soundcloud.com/forss",
+            "https://www.deezer.com/en/artist/27",
+            "daft punk",
+        ] {
+            assert!(!looks_like_playlist_url(not) && !looks_like_youtube_link(not), "{not}");
         }
     }
 

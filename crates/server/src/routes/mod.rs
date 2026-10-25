@@ -2,7 +2,9 @@
 //! the shared state plus the small endpoints (health, search).
 
 pub mod downloads;
+pub mod favorites;
 pub mod playlists;
+pub mod podcasts;
 pub mod recommendations;
 pub mod resolve;
 pub mod sync;
@@ -54,7 +56,16 @@ pub struct AppState {
     pub sync_listener: Arc<crate::settings::SyncListener>,
 }
 
+/// The API with a podcast manager made from the state (tests); the server
+/// itself shares its manager with the feed check via [`router_with`].
+#[cfg(test)]
 pub fn router(state: AppState) -> Router {
+    let dir = state.covers_dir.parent().map(|d| d.join("podcasts")).unwrap_or_else(|| state.covers_dir.join("podcasts"));
+    let podcasts = crate::podcasts::PodcastManager::new(state.db.clone(), state.http.clone(), dir, state.covers_dir.clone());
+    router_with(state, podcasts)
+}
+
+pub fn router_with(state: AppState, podcasts: crate::podcasts::PodcastManager) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| origin.to_str().is_ok_and(is_local_origin)))
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
@@ -73,6 +84,8 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .merge(phone)
+        .merge(podcasts::router(podcasts))
+        .merge(favorites::router())
         .route("/api/settings", get(cfg::get_settings).patch(cfg::patch_settings).route_layer(axum::middleware::from_fn(require_json)))
         .route("/api/health", get(health))
         .route("/api/resolve", get(resolve::resolve))

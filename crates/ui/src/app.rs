@@ -60,6 +60,8 @@ pub enum Route {
     Artist(String),
     Album(String, String),
     Settings,
+    Podcasts,
+    Podcast(i64),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -192,6 +194,8 @@ pub struct App {
     pub m_playlist: Rc<VecModel<TrackItem>>,
     pub m_tracklist: Rc<VecModel<TrackItem>>,
     pub m_upnext: Rc<VecModel<TrackItem>>,
+
+    pub pod: crate::podcasts::PodState,
 }
 
 pub fn track_item(t: &Track) -> TrackItem {
@@ -278,6 +282,7 @@ impl App {
         let null_sink = std::env::var("GEONIX_NULL_AUDIO").map(|v| v == "1").unwrap_or(false);
         let audio = Audio::new(null_sink, |e| post(move |a| a.on_audio(e)));
         let volume = settings.start_volume();
+        let pod = crate::podcasts::PodState::new(api.base.clone());
         let app = App {
             win: win.clone_strong(),
             api,
@@ -335,6 +340,7 @@ impl App {
             m_playlist: Rc::new(VecModel::default()),
             m_tracklist: Rc::new(VecModel::default()),
             m_upnext: Rc::new(VecModel::default()),
+            pod,
         };
         {
             let lib = win.global::<Lib>();
@@ -346,6 +352,10 @@ impl App {
             let p = win.global::<Player>();
             p.set_up_next(ModelRc::from(app.m_upnext.clone()));
             p.set_volume(volume * 100.0);
+            let pod = win.global::<crate::Pod>();
+            pod.set_subs(ModelRc::from(app.pod.m_subs.clone()));
+            pod.set_hits(ModelRc::from(app.pod.m_hits.clone()));
+            pod.set_episodes(ModelRc::from(app.pod.m_eps.clone()));
         }
         app.audio.set_volume(volume);
         crate::wire::wire(&win);
@@ -418,7 +428,14 @@ impl App {
             Route::Artist(_) => Page::Artist,
             Route::Album(..) => Page::Album,
             Route::Settings => Page::Settings,
+            Route::Podcasts => Page::Podcasts,
+            Route::Podcast(_) => Page::Podcast,
         });
+        if matches!(route, Route::Podcasts | Route::Podcast(_)) {
+            self.pod_enter();
+        } else {
+            self.pod_leave();
+        }
         match route {
             Route::Playlist(id) => self.load_playlist(id, true),
             Route::Artist(_) | Route::Album(..) => self.update_tracklist(),

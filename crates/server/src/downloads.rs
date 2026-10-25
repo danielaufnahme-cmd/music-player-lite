@@ -19,6 +19,9 @@ use crate::provider::Music;
 pub const MAX_PARALLEL: usize = crate::settings::MAX_PARALLEL as usize;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const INFO_TIMEOUT: Duration = Duration::from_secs(120);
+/// Reading a Spotify / Apple Music / Deezer / SoundCloud link also searches
+/// YouTube Music for every song, which takes a while for big playlists.
+const EXTERNAL_INFO_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// An import within this time after its preview reuses the preview's songs
 /// instead of asking YouTube again.
 const INFO_REUSE: Duration = Duration::from_secs(300);
@@ -52,6 +55,10 @@ pub struct PlaylistImport {
     /// Songs that were already in the target playlist (left untouched).
     pub already_in_playlist: usize,
     pub downloads: Vec<Download>,
+    /// Songs of a Spotify / Apple Music / Deezer / SoundCloud link that have no good YouTube Music match.
+    pub unmatched: Vec<String>,
+    /// Something the user should know about the link (e.g. a song cap).
+    pub note: Option<String>,
 }
 
 /// Where an import puts the YouTube songs.
@@ -363,8 +370,22 @@ impl DownloadManager {
     }
 
     /// Ask the provider what is in a playlist (used for the preview and import).
+    /// Links of other services are looked up on a task of their own, so a
+    /// client that gives up waiting still leaves the result in the cache for
+    /// its next try.
     pub async fn playlist_info(&self, url: &str) -> ApiResult<PlaylistInfo> {
-        let data = self.music.request(json!({"cmd": "playlist_info", "url": url}), INFO_TIMEOUT).await?;
+        if geonix_yt::providers::parse_link(url).is_none() {
+            return self.fetch_info(url, INFO_TIMEOUT).await;
+        }
+        let this = self.clone();
+        let url = url.to_string();
+        tokio::spawn(async move { this.fetch_info(&url, EXTERNAL_INFO_TIMEOUT).await })
+            .await
+            .map_err(|e| ApiError::internal(format!("playlist lookup stopped: {e}")))?
+    }
+
+    async fn fetch_info(&self, url: &str, timeout: Duration) -> ApiResult<PlaylistInfo> {
+        let data = self.music.request(json!({"cmd": "playlist_info", "url": url}), timeout).await?;
         let info: PlaylistInfo =
             serde_json::from_value(data).map_err(|e| ApiError::internal(format!("bad playlist info from provider: {e}")))?;
         for t in &info.tracks {
@@ -397,7 +418,11 @@ impl DownloadManager {
         }
         let info = self.playlist_info_for_import(url).await?;
         if info.tracks.is_empty() {
-            return Err(ApiError::bad_request("that playlist has no available songs"));
+            return Err(ApiError::bad_request(if info.unmatched.is_empty() {
+                "that playlist has no available songs".to_string()
+            } else {
+                format!("none of the {} songs could be matched on YouTube Music", info.unmatched.len())
+            }));
         }
         let ids: Vec<String> = info.tracks.iter().map(|t| t.video_id.clone()).collect();
         let (playlist_id, name, plan) = match target {
@@ -426,6 +451,8 @@ impl DownloadManager {
             skipped: plan.in_library,
             already_in_playlist: plan.already_in_playlist,
             downloads,
+            unmatched: info.unmatched,
+            note: info.note,
         })
     }
 
@@ -518,6 +545,54 @@ mod tests {
                 Ok(json!({"video_id": "aaaaaaaaaaa", "title": "Song", "artist": "A", "file_path": file.to_string_lossy()}))
             })
         }
+    }
+
+    /// Answers `playlist_info` like the provider does for a Spotify link, and fails every download.
+    struct SpotifyLink;
+
+    impl crate::provider::Provider for SpotifyLink {
+        fn handle<'a>(
+            &'a self,
+            cmd: &'a str,
+            _params: serde_json::Value,
+            _progress: crate::provider::ProgressFn,
+        ) -> crate::provider::BoxFuture<'a, Result<serde_json::Value, String>> {
+            Box::pin(async move {
+                match cmd {
+                    "playlist_info" => Ok(json!({
+                        "title": "Road trip",
+                        "tracks": [
+                            {"video_id": "aaaaaaaaaaa", "title": "One", "artist": "A", "duration_sec": 100},
+                            {"video_id": "bbbbbbbbbbb", "title": "Two", "artist": "B", "duration_sec": 200},
+                        ],
+                        "unmatched": ["C - Three"],
+                        "note": "Spotify only shows the first 100 songs",
+                        "single": false,
+                    })),
+                    _ => Err("no downloads in this test".into()),
+                }
+            })
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn link_of_another_service_imports_as_an_imported_playlist_and_skips_library_songs() {
+        let dir = std::env::temp_dir().join(format!("geonix-spotify-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Arc::new(Db::open_in_memory().unwrap());
+        library_track(&db, &dir, "aaaaaaaaaaa");
+        let mgr = DownloadManager::new(db.clone(), Music::new(SpotifyLink), dir.clone(), dir.join("covers"), None);
+        let url = "https://open.spotify.com/playlist/ABCD1234";
+
+        let import = mgr.enqueue_playlist(url, ImportTarget::New { name: None }).await.unwrap();
+        assert_eq!((import.name.as_str(), import.total, import.queued, import.skipped), ("Road trip", 2, 1, 1));
+        assert_eq!(import.unmatched, ["C - Three"]);
+        assert_eq!(import.note.as_deref(), Some("Spotify only shows the first 100 songs"));
+        assert_eq!(import.downloads[0].video_id, "bbbbbbbbbbb");
+        let pl = db.playlist(import.playlist_id.unwrap()).unwrap();
+        assert_eq!((pl.playlist.kind.as_str(), pl.playlist.source_url.as_deref()), ("imported", Some(url)));
+        assert_eq!(playlist_ids(&db, pl.playlist.id), ["aaaaaaaaaaa", "bbbbbbbbbbb"]);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -10,6 +10,7 @@ use std::sync::{Mutex, MutexGuard};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::models::{now_ms, Album, Artist, Download, Playlist, PlaylistDetail, Recommendation, Track};
+use crate::podcasts::{Episode, FeedEpisode, Podcast};
 
 const MIGRATIONS: &[&str] = &[
     // 1: initial schema
@@ -100,6 +101,39 @@ const MIGRATIONS: &[&str] = &[
         last_error   TEXT,
         created_at   INTEGER NOT NULL
     );
+    "#,
+    // 4: podcasts (subscriptions and their episodes; files live outside the music folder)
+    r#"
+    CREATE TABLE IF NOT EXISTS podcasts (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        feed_url      TEXT NOT NULL UNIQUE,
+        title         TEXT NOT NULL DEFAULT '',
+        author        TEXT NOT NULL DEFAULT '',
+        image_url     TEXT NOT NULL DEFAULT '',
+        subscribed    INTEGER NOT NULL DEFAULT 1,
+        subscribed_at INTEGER NOT NULL,
+        last_checked  INTEGER,
+        last_error    TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS podcast_episodes (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        podcast_id    INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+        guid          TEXT NOT NULL,
+        title         TEXT NOT NULL DEFAULT '',
+        published_at  INTEGER NOT NULL DEFAULT 0,
+        duration_sec  INTEGER NOT NULL DEFAULT 0,
+        enclosure_url TEXT NOT NULL,
+        file_path     TEXT,
+        status        TEXT NOT NULL DEFAULT 'none',
+        progress      REAL NOT NULL DEFAULT 0,
+        error         TEXT,
+        position_sec  REAL NOT NULL DEFAULT 0,
+        played        INTEGER NOT NULL DEFAULT 0,
+        no_auto       INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (podcast_id, guid)
+    );
+    CREATE INDEX IF NOT EXISTS idx_podcast_episodes_pub ON podcast_episodes(podcast_id, published_at DESC);
     "#,
 ];
 
@@ -860,6 +894,213 @@ impl Db {
 
     pub fn set_private_listening(&self, enabled: bool) -> rusqlite::Result<()> {
         self.set_meta(PRIVATE_LISTENING_KEY, if enabled { "1" } else { "0" })
+    }
+}
+
+// ------------------------------------------------------------------ podcasts
+
+const PODCAST_COLS: &str =
+    "p.id, p.title, p.author, p.feed_url, p.image_url, p.subscribed, p.subscribed_at, p.last_checked, p.last_error, \
+     (SELECT COUNT(*) FROM podcast_episodes e WHERE e.podcast_id = p.id), \
+     (SELECT COUNT(*) FROM podcast_episodes e WHERE e.podcast_id = p.id AND e.played = 0)";
+
+fn podcast_from_row(r: &Row) -> rusqlite::Result<Podcast> {
+    Ok(Podcast {
+        id: r.get(0)?,
+        title: r.get(1)?,
+        author: r.get(2)?,
+        feed_url: r.get(3)?,
+        image_url: r.get(4)?,
+        subscribed: r.get::<_, i64>(5)? != 0,
+        subscribed_at: r.get(6)?,
+        last_checked: r.get(7)?,
+        last_error: r.get(8)?,
+        episode_count: r.get(9)?,
+        unplayed_count: r.get(10)?,
+    })
+}
+
+const EPISODE_COLS: &str =
+    "id, podcast_id, title, published_at, duration_sec, enclosure_url, file_path, status, progress, error, position_sec, played";
+
+fn episode_from_row(r: &Row) -> rusqlite::Result<Episode> {
+    Ok(Episode {
+        id: r.get(0)?,
+        podcast_id: r.get(1)?,
+        title: r.get(2)?,
+        published_at: r.get(3)?,
+        duration_sec: r.get(4)?,
+        enclosure_url: r.get(5)?,
+        file_path: r.get(6)?,
+        status: r.get(7)?,
+        progress: r.get(8)?,
+        error: r.get(9)?,
+        position_sec: r.get(10)?,
+        played: r.get::<_, i64>(11)? != 0,
+    })
+}
+
+impl Db {
+    pub fn podcast(&self, id: i64) -> rusqlite::Result<Option<Podcast>> {
+        let sql = format!("SELECT {PODCAST_COLS} FROM podcasts p WHERE p.id = ?1");
+        self.conn().query_row(&sql, [id], podcast_from_row).optional()
+    }
+
+    pub fn podcast_by_feed(&self, feed_url: &str) -> rusqlite::Result<Option<Podcast>> {
+        let sql = format!("SELECT {PODCAST_COLS} FROM podcasts p WHERE p.feed_url = ?1");
+        self.conn().query_row(&sql, [feed_url], podcast_from_row).optional()
+    }
+
+    /// Subscribed podcasts, A to Z.
+    pub fn subscribed_podcasts(&self) -> rusqlite::Result<Vec<Podcast>> {
+        let sql = format!("SELECT {PODCAST_COLS} FROM podcasts p WHERE p.subscribed = 1 ORDER BY p.title COLLATE NOCASE ASC, p.id");
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], podcast_from_row)?;
+        rows.collect()
+    }
+
+    pub fn insert_podcast(&self, feed_url: &str, title: &str, author: &str, image_url: &str, now: i64) -> rusqlite::Result<i64> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO podcasts (feed_url, title, author, image_url, subscribed, subscribed_at) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
+            params![feed_url, title, author, image_url, now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Subscribe again: episodes that came out meanwhile are not auto-downloaded.
+    pub fn resubscribe_podcast(&self, id: i64, now: i64, title: &str, author: &str, image_url: &str) -> rusqlite::Result<()> {
+        self.conn().execute(
+            "UPDATE podcasts SET subscribed = 1, subscribed_at = CASE WHEN subscribed = 1 THEN subscribed_at ELSE ?2 END, \
+             title = ?3, author = ?4, image_url = CASE WHEN ?5 = '' THEN image_url ELSE ?5 END WHERE id = ?1",
+            params![id, now, title, author, image_url],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_podcast_meta(&self, id: i64, title: &str, author: &str, image_url: &str) -> rusqlite::Result<()> {
+        self.conn()
+            .execute("UPDATE podcasts SET title = ?2, author = ?3, image_url = ?4 WHERE id = ?1", params![id, title, author, image_url])?;
+        Ok(())
+    }
+
+    pub fn set_podcast_checked(&self, id: i64, at: i64, error: Option<&str>) -> rusqlite::Result<()> {
+        self.conn().execute("UPDATE podcasts SET last_checked = ?2, last_error = ?3 WHERE id = ?1", params![id, at, error])?;
+        Ok(())
+    }
+
+    /// Stop following; episodes, positions and downloaded files stay.
+    pub fn unsubscribe_podcast(&self, id: i64) -> rusqlite::Result<bool> {
+        Ok(self.conn().execute("UPDATE podcasts SET subscribed = 0 WHERE id = ?1", [id])? > 0)
+    }
+
+    /// Add new episodes and refresh the title / link / length of known ones.
+    /// Returns how many are new.
+    pub fn upsert_episodes(&self, podcast_id: i64, eps: &[FeedEpisode]) -> rusqlite::Result<usize> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let mut new = 0;
+        {
+            let mut exists = tx.prepare("SELECT 1 FROM podcast_episodes WHERE podcast_id = ?1 AND guid = ?2")?;
+            let mut insert = tx.prepare(
+                "INSERT INTO podcast_episodes (podcast_id, guid, title, published_at, duration_sec, enclosure_url) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            let mut update = tx.prepare(
+                "UPDATE podcast_episodes SET title = ?3, enclosure_url = ?4, \
+                 published_at = CASE WHEN ?5 > 0 THEN ?5 ELSE published_at END, \
+                 duration_sec = CASE WHEN ?6 > 0 THEN ?6 ELSE duration_sec END WHERE podcast_id = ?1 AND guid = ?2",
+            )?;
+            for e in eps {
+                if exists.exists(params![podcast_id, e.guid])? {
+                    update.execute(params![podcast_id, e.guid, e.title, e.enclosure_url, e.published_at, e.duration_sec])?;
+                } else {
+                    insert.execute(params![podcast_id, e.guid, e.title, e.published_at, e.duration_sec, e.enclosure_url])?;
+                    new += 1;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(new)
+    }
+
+    pub fn episode(&self, id: i64) -> rusqlite::Result<Option<Episode>> {
+        let sql = format!("SELECT {EPISODE_COLS} FROM podcast_episodes WHERE id = ?1");
+        self.conn().query_row(&sql, [id], episode_from_row).optional()
+    }
+
+    /// Newest first.
+    pub fn episodes(&self, podcast_id: i64, limit: usize) -> rusqlite::Result<Vec<Episode>> {
+        let sql = format!("SELECT {EPISODE_COLS} FROM podcast_episodes WHERE podcast_id = ?1 ORDER BY published_at DESC, id DESC LIMIT ?2");
+        let conn = self.conn();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![podcast_id, limit as i64], episode_from_row)?;
+        rows.collect()
+    }
+
+    /// Episodes published after subscribing that are not downloaded, queued
+    /// or deleted by hand.
+    pub fn auto_download_candidates(&self, podcast_id: i64) -> rusqlite::Result<Vec<i64>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT e.id FROM podcast_episodes e JOIN podcasts p ON p.id = e.podcast_id \
+             WHERE e.podcast_id = ?1 AND p.subscribed = 1 AND e.published_at > p.subscribed_at \
+               AND e.status IN ('none', 'failed') AND e.no_auto = 0 ORDER BY e.published_at",
+        )?;
+        let rows = stmt.query_map([podcast_id], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    /// Move an episode from "not downloaded" / "failed" to "queued". False if
+    /// it is already queued, downloading or done.
+    pub fn claim_episode(&self, id: i64) -> rusqlite::Result<bool> {
+        let n = self.conn().execute(
+            "UPDATE podcast_episodes SET status = 'queued', progress = 0, error = NULL WHERE id = ?1 \
+             AND status IN ('none', 'failed')",
+            [id],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn set_episode_state(&self, id: i64, status: &str, progress: f64, error: Option<&str>) -> rusqlite::Result<()> {
+        self.conn().execute(
+            "UPDATE podcast_episodes SET status = ?2, progress = ?3, error = ?4 WHERE id = ?1",
+            params![id, status, progress, error],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_episode_done(&self, id: i64, file_path: &str) -> rusqlite::Result<()> {
+        self.conn().execute(
+            "UPDATE podcast_episodes SET status = 'done', progress = 100, error = NULL, file_path = ?2 WHERE id = ?1",
+            params![id, file_path],
+        )?;
+        Ok(())
+    }
+
+    /// The file is gone: back to "not downloaded", and never auto-download it again.
+    pub fn clear_episode_file(&self, id: i64) -> rusqlite::Result<()> {
+        self.conn().execute(
+            "UPDATE podcast_episodes SET status = 'none', progress = 0, error = NULL, file_path = NULL, no_auto = 1 WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
+    }
+
+    /// Set the position; `duration` (when known) fills in a missing length.
+    pub fn set_episode_position(&self, id: i64, position: f64, played: bool, duration: Option<i64>) -> rusqlite::Result<()> {
+        self.conn().execute(
+            "UPDATE podcast_episodes SET position_sec = ?2, played = CASE WHEN ?3 THEN 1 ELSE played END, \
+             duration_sec = CASE WHEN duration_sec = 0 AND ?4 > 0 THEN ?4 ELSE duration_sec END WHERE id = ?1",
+            params![id, position, played, duration.unwrap_or(0)],
+        )?;
+        Ok(())
+    }
+
+    /// Downloads cut off by a crash or shutdown go back to "not downloaded".
+    pub fn reset_interrupted_episodes(&self) -> rusqlite::Result<usize> {
+        self.conn().execute("UPDATE podcast_episodes SET status = 'none', progress = 0 WHERE status IN ('queued', 'downloading')", [])
     }
 }
 

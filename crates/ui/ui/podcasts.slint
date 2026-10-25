@@ -1,0 +1,456 @@
+// Podcasts: search + subscribed grid, and the episode list of one podcast.
+import { ScrollView, ListView } from "std-widgets.slint";
+import { Theme, Type, Radius, CardItem, PodcastItem, EpisodeItem } from "theme.slint";
+import { Icons } from "icons.slint";
+import { Nav, Page, Player, Pod } from "state.slint";
+import { Txt, Icon, IconButton, Button, Field, Cover, CoverCard, EmptyState, Ring, Progress } from "widgets.slint";
+import { Layout } from "pages.slint";
+
+// Subscribed podcasts as a grid of covers (same grid as the library).
+component PodGrid inherits ScrollView {
+    private property <length> avail: self.visible-width - 64px + 16px;
+    private property <int> cols: max(1, floor(avail / 176px));
+    private property <length> cell: avail / cols;
+    private property <length> img: min(200px, cell - 16px);
+    content-height: ceil(Pod.subs.length / cols) * (img + 88px) + 16px + Layout.bottom-pad;
+    for c[i] in Pod.subs: CoverCard {
+        x: 32px + mod(i, cols) * cell;
+        y: 16px + floor(i / cols) * (img + 88px);
+        card: c;
+        image-size: img;
+        tapped => { Pod.open-sub(i); }
+    }
+}
+
+// One search result: cover, title, author and a subscribe button.
+component HitRow inherits Rectangle {
+    in property <PodcastItem> hit;
+    in property <int> index;
+    private property <bool> hover: touch.has-hover;
+    height: 72px;
+    Rectangle {
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: Radius.control;
+        background: hover ? Theme.text.with-alpha(0.07) : transparent;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Pod.open-hit(index); }
+    }
+    HorizontalLayout {
+        padding: 8px;
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 14px;
+        Cover {
+            id: hit.cover;
+            size: 56px;
+            radius: Radius.thumb;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            preferred-width: 0px;
+            min-width: 0px;
+            alignment: center;
+            spacing: 3px;
+            Txt {
+                text: hit.title;
+                font-size: Type.body-medium;
+                font-weight: 600;
+                overflow: elide;
+            }
+            Txt {
+                text: hit.author;
+                font-size: 13px;
+                color: Theme.muted;
+                overflow: elide;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Button {
+                kind: hit.subscribed ? 3 : 1;
+                text: hit.subscribed ? "Subscribed" : "Subscribe";
+                icon: hit.subscribed ? Icons.check : Icons.add;
+                has-icon: true;
+                enabled: !Pod.busy;
+                clicked => { Pod.subscribe-hit(index); }
+            }
+        }
+    }
+}
+
+export component PodcastsPage inherits Rectangle {
+    VerticalLayout {
+        VerticalLayout {
+            padding-left: 32px;
+            padding-right: 32px;
+            padding-top: 40px;
+            padding-bottom: 16px;
+            spacing: 24px;
+            Txt {
+                text: "Podcasts";
+                font-size: 32px;
+                font-weight: 800;
+                letter-spacing: -1.1px;
+            }
+            field := Field {
+                text: Pod.query;
+                hint: "Search podcasts, or paste an RSS link";
+                prefix: Icons.search;
+                has-prefix: true;
+                suffix: Icons.close;
+                has-suffix: Pod.query != "";
+                font-size: 15px;
+                pad-v: 12px;
+                edited(t) => { Pod.set-query(t); }
+                accepted(t) => { Pod.submit(); }
+                suffix-clicked => {
+                    Pod.set-query("");
+                    self.text = "";
+                    self.focus-input();
+                }
+            }
+        }
+        if Pod.search-state == 0 && Pod.subs-state == 0: Rectangle { vertical-stretch: 1; }
+        if Pod.search-state == 0 && Pod.subs-state == 2: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.cloud-off;
+            title: "Couldn’t load your podcasts";
+            message: Pod.subs-error;
+            action: "Retry";
+            act => { Pod.retry(); }
+        }
+        if Pod.search-state == 0 && Pod.subs-state == 1 && Pod.subs.length == 0: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.queue-music;
+            title: "No podcasts yet";
+            message: "Search for a podcast above, or paste the link of its RSS feed. New episodes download automatically.";
+        }
+        if Pod.search-state == 0 && Pod.subs.length > 0: PodGrid { vertical-stretch: 1; }
+        if Pod.search-state == 1: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: start;
+            padding-left: 36px;
+            padding-right: 32px;
+            padding-top: 8px;
+            spacing: 16px;
+            for i in 6: HorizontalLayout {
+                spacing: 14px;
+                Rectangle { width: 56px; height: 56px; border-radius: Radius.thumb; background: Theme.tint; }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    HorizontalLayout { alignment: start; Rectangle { width: 160px + mod(i * 37, 120) * 1px; height: 12px; border-radius: 3px; background: Theme.tint; } }
+                    HorizontalLayout { alignment: start; Rectangle { width: 90px + mod(i * 23, 80) * 1px; height: 10px; border-radius: 3px; background: Theme.tint; } }
+                }
+            }
+        }
+        if Pod.search-state == 3: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.search-off;
+            title: "No podcast found for “" + Pod.query + "”";
+            message: "Check the spelling, or paste the link of its RSS feed.";
+        }
+        if Pod.search-state == 4: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.wifi-off;
+            title: "Search didn’t go through";
+            message: Pod.search-error;
+            action: "Retry";
+            act => { Pod.submit(); }
+        }
+        if Pod.search-state == 5: VerticalLayout {
+            vertical-stretch: 1;
+            alignment: start;
+            padding-left: 32px;
+            padding-right: 32px;
+            padding-top: 8px;
+            Rectangle {
+                border-radius: Radius.control;
+                background: Theme.tint;
+                HorizontalLayout {
+                    padding: 16px;
+                    spacing: 16px;
+                    VerticalLayout {
+                        alignment: center;
+                        Icon {
+                            width: 28px;
+                            height: 28px;
+                            source: Icons.link;
+                            colorize: Theme.muted;
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        preferred-width: 0px;
+                        min-width: 0px;
+                        alignment: center;
+                        spacing: 4px;
+                        Txt {
+                            text: "RSS feed";
+                            font-size: Type.body-medium;
+                            font-weight: 600;
+                        }
+                        Txt {
+                            text: Pod.query;
+                            font-size: 13px;
+                            color: Theme.muted;
+                            overflow: elide;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "Add podcast";
+                            icon: Icons.add;
+                            has-icon: true;
+                            busy: Pod.busy;
+                            clicked => { Pod.add-link(); }
+                        }
+                    }
+                }
+            }
+        }
+        if Pod.search-state == 2: ListView {
+            vertical-stretch: 1;
+            for h[i] in Pod.hits: VerticalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                padding-bottom: i == Pod.hits.length - 1 ? Layout.bottom-pad : 0;
+                HitRow {
+                    hit: h;
+                    index: i;
+                }
+            }
+        }
+    }
+}
+
+// One episode: play (resumes), download state, delete of the downloaded file.
+component EpisodeRow inherits Rectangle {
+    in property <EpisodeItem> ep;
+    in property <int> index;
+    private property <bool> current: Player.has-track && Player.id == ep.key;
+    private property <bool> hover: touch.has-hover || dl.has-hover || del.has-hover;
+    height: 76px;
+    Rectangle {
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: Radius.control;
+        background: hover ? Theme.text.with-alpha(0.07) : (current ? Theme.tint : transparent);
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Pod.play-episode(index); }
+    }
+    HorizontalLayout {
+        padding: 8px;
+        padding-left: 12px;
+        padding-right: 8px;
+        spacing: 8px;
+        Rectangle {
+            width: 32px;
+            if current && Player.playing && !hover: Icon {
+                width: 20px;
+                height: 20px;
+                source: Icons.graphic-eq;
+                colorize: Theme.accent;
+            }
+            if hover || (current && !Player.playing): Icon {
+                width: 22px;
+                height: 22px;
+                source: Icons.play-arrow;
+                colorize: current ? Theme.accent : Theme.text;
+            }
+            if !hover && !current && !ep.played: Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.accent;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            preferred-width: 0px;
+            min-width: 0px;
+            alignment: center;
+            spacing: 3px;
+            Txt {
+                text: ep.title;
+                font-size: Type.body-medium;
+                font-weight: 600;
+                color: current ? Theme.accent : (ep.played ? Theme.muted : Theme.text);
+                overflow: elide;
+            }
+            Txt {
+                text: ep.resume != "" ? ep.subtitle + " · " + ep.resume : ep.subtitle;
+                font-size: 13px;
+                color: Theme.muted;
+                overflow: elide;
+            }
+            if ep.listened > 0 && !ep.played: Rectangle {
+                height: 3px;
+                Progress {
+                    x: 0px;
+                    value: ep.listened;
+                    thickness: 3px;
+                    width: min(160px, parent.width);
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 80px;
+                height: 36px;
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 0px;
+                    dl := IconButton {
+                        visible: ep.state == 0 || ep.state == 4;
+                        size: ep.state == 0 || ep.state == 4 ? 36px : 0px;
+                        icon: ep.state == 4 ? Icons.error-outline : Icons.download;
+                        icon-size: 20px;
+                        color: ep.state == 4 ? #FF5252 : Theme.muted;
+                        clicked => { Pod.download-episode(index); }
+                    }
+                    if ep.state == 2 || ep.state == 3: Rectangle {
+                        width: 36px;
+                        Ring {
+                            value: ep.state == 2 ? -1 : ep.progress;
+                        }
+                    }
+                    if ep.state == 1: Rectangle {
+                        width: 36px;
+                        Icon {
+                            width: 20px;
+                            height: 20px;
+                            source: Icons.download-done;
+                            colorize: Theme.muted.with-alpha(0.8);
+                        }
+                    }
+                    del := IconButton {
+                        visible: ep.state == 1;
+                        size: ep.state == 1 ? 36px : 0px;
+                        icon: Icons.delete-outline;
+                        icon-size: 20px;
+                        color: Theme.muted;
+                        opacity: hover ? 1 : 0.35;
+                        clicked => { Pod.delete-episode(index); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component PodHeader inherits VerticalLayout {
+    padding-left: 32px;
+    padding-right: 32px;
+    padding-top: 40px;
+    padding-bottom: 24px;
+    HorizontalLayout {
+        alignment: start;
+        padding-bottom: 16px;
+        IconButton {
+            icon: Icons.arrow-back;
+            size: 36px;
+            fill: Theme.text.with-alpha(0.08);
+            clicked => { Nav.pop(); }
+        }
+    }
+    HorizontalLayout {
+        spacing: 24px;
+        Cover {
+            id: Pod.current.cover;
+            size: 144px;
+            radius: Radius.hero;
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            preferred-width: 0px;
+            min-width: 0px;
+            alignment: end;
+            spacing: 8px;
+            Txt {
+                text: "Podcast";
+                font-size: 13px;
+                font-weight: 600;
+                color: Theme.text.with-alpha(0.7);
+            }
+            Txt {
+                text: Pod.current.title;
+                font-size: 36px;
+                font-weight: 800;
+                letter-spacing: -1.2px;
+                overflow: elide;
+            }
+            Txt {
+                text: Pod.current.author != "" ? Pod.current.author + " · " + Pod.current.meta : Pod.current.meta;
+                font-size: 13px;
+                color: Theme.muted;
+                overflow: elide;
+            }
+            if Pod.current-error != "": Txt {
+                text: "Last check failed: " + Pod.current-error;
+                font-size: 12px;
+                color: Theme.error;
+                overflow: elide;
+            }
+            HorizontalLayout {
+                padding-top: 12px;
+                spacing: 8px;
+                alignment: start;
+                Button {
+                    text: "Check for new episodes";
+                    icon: Icons.refresh;
+                    has-icon: true;
+                    busy: Pod.refreshing;
+                    clicked => { Pod.refresh(); }
+                }
+                Button {
+                    kind: 1;
+                    text: "Unsubscribe";
+                    clicked => { Pod.unsubscribe(); }
+                }
+            }
+        }
+    }
+}
+
+export component PodcastPage inherits Rectangle {
+    if Pod.ep-state != 1 || Pod.episodes.length == 0: VerticalLayout {
+        PodHeader { }
+        if Pod.ep-state == 0: Rectangle { vertical-stretch: 1; }
+        if Pod.ep-state == 2: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.cloud-off;
+            title: "Couldn’t load the episodes";
+            message: Pod.ep-error;
+            action: "Retry";
+            act => { Pod.retry(); }
+        }
+        if Pod.ep-state == 1: EmptyState {
+            vertical-stretch: 1;
+            icon: Icons.queue-music;
+            title: "No episodes yet";
+            message: "This feed doesn’t list any audio episodes.";
+        }
+    }
+    if Pod.ep-state == 1 && Pod.episodes.length > 0: ListView {
+        for e[i] in Pod.episodes: VerticalLayout {
+            padding-bottom: i == Pod.episodes.length - 1 ? Layout.bottom-pad : 0;
+            if i == 0: PodHeader { }
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                EpisodeRow {
+                    ep: e;
+                    index: i;
+                }
+            }
+        }
+    }
+}

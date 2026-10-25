@@ -26,11 +26,14 @@ pub const SCREENS: &[&str] = &[
     "library-playlists",
     "playlist",
     "downloads",
+    "podcasts",
+    "podcast",
     "home-playing",
     "queue",
     "now-playing",
     "now-playing-lyrics",
     "dialog-new-playlist",
+    "dialog-import-unmatched",
     "dialog-devices",
     "dialog-remove",
     "menu",
@@ -88,6 +91,10 @@ pub fn start(win: &AppWindow, target: Target) {
         (1500, Box::new(|_| {}), Some("playlist")),
         (0, Box::new(|a| a.go(Route::Downloads)), None),
         (1000, Box::new(|_| {}), Some("downloads")),
+        (0, Box::new(|a| a.go(Route::Podcasts)), None),
+        (1800, Box::new(|_| {}), Some("podcasts")),
+        (0, Box::new(|a| a.pod_open_biggest()), None),
+        (1800, Box::new(|_| {}), Some("podcast")),
         (
             0,
             Box::new(|a| {
@@ -125,6 +132,8 @@ pub fn start(win: &AppWindow, target: Target) {
             None,
         ),
         (1200, Box::new(|_| {}), Some("dialog-new-playlist")),
+        (0, Box::new(|a| a.import_url_edited("https://music.youtube.com/playlist?list=PLtour".into())), None),
+        (2500, Box::new(|_| {}), Some("dialog-import-unmatched")),
         (
             0,
             Box::new(|a| {

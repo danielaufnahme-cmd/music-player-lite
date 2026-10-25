@@ -1,7 +1,7 @@
 //! geonix-yt: the Rust replacement of the Python worker (worker/*.py).
 //!
 //! Same command surface and JSON in/out as `worker.py`:
-//! `search`, `playlist_info`, `download`, `recommend`, `song_info`,
+//! `search`, `playlist_info` (also Spotify, Apple Music, Deezer and SoundCloud links), `download`, `recommend`, `song_info`,
 //! `stream_url`, `lyrics`, `ping`. Errors are the worker's friendly messages.
 //!
 //! YouTube Music is queried through the InnerTube WEB_REMIX API directly (what
@@ -12,6 +12,8 @@ pub mod downloader;
 pub mod innertube;
 pub mod lyrics;
 pub mod net;
+pub mod providers;
+pub mod providers_match;
 pub mod recommender;
 pub mod tools;
 pub mod util;
@@ -84,7 +86,14 @@ impl Yt {
                 let query = require_str(req, "query")?;
                 Ok(json!({"tracks": ytm::search(t, query, limit).await?}))
             }
-            "playlist_info" => ytm::playlist_info(t, self.ytdlp.as_deref(), require_str(req, "url")?).await,
+            "playlist_info" => {
+                let url = require_str(req, "url")?;
+                // Spotify / Apple Music / Deezer / SoundCloud links are read there and matched on YouTube Music.
+                match providers::parse_link(url) {
+                    Some(link) => providers::playlist_info(t, self.ytdlp.as_deref(), &link).await,
+                    None => ytm::playlist_info(t, self.ytdlp.as_deref(), url).await,
+                }
+            }
             "download" => {
                 let meta = req.get("meta").filter(|m| m.is_object());
                 let video_id = require_str(req, "video_id")?;

@@ -29,6 +29,7 @@ pub async fn resolve(State(s): State<AppState>, Query(q): Query<ResolveQuery>) -
         (k, _) => k,
     };
     match kind {
+        LinkKind::ExternalSong { source } => external_song(&s, &source).await,
         LinkKind::Ambiguous { video_id, playlist_source } => {
             Ok(Json(json!({ "kind": "ambiguous", "video_id": video_id, "playlist_url": playlist_source })))
         }
@@ -38,8 +39,16 @@ pub async fn resolve(State(s): State<AppState>, Query(q): Query<ResolveQuery>) -
         }
         LinkKind::Playlist { source } => {
             let info: PlaylistInfo = s.downloads.playlist_info(&source).await?;
+            if info.single {
+                // A short link that turned out to be one song.
+                return song_from_info(&s, info);
+            }
             if info.tracks.is_empty() {
-                return Err(ApiError::bad_request("That playlist has no available songs"));
+                return Err(ApiError::bad_request(if info.unmatched.is_empty() {
+                    "That playlist has no available songs".to_string()
+                } else {
+                    format!("None of the {} songs could be matched on YouTube Music", info.unmatched.len())
+                }));
             }
             let ids: Vec<String> = info.tracks.iter().map(|t| t.video_id.clone()).collect();
             let have = s.db.downloaded_set(&ids)?;
@@ -51,9 +60,31 @@ pub async fn resolve(State(s): State<AppState>, Query(q): Query<ResolveQuery>) -
                     t
                 })
                 .collect();
-            Ok(Json(json!({ "kind": "playlist", "playlist_url": source, "title": info.title, "tracks": tracks })))
+            Ok(Json(json!({
+                "kind": "playlist", "playlist_url": source, "title": info.title, "tracks": tracks,
+                "unmatched": info.unmatched, "note": info.note,
+            })))
         }
     }
+}
+
+/// A song link of another service: its best YouTube Music match.
+async fn external_song(s: &AppState, source: &str) -> ApiResult<Json<Value>> {
+    let info = s.downloads.playlist_info(source).await?;
+    song_from_info(s, info)
+}
+
+fn song_from_info(s: &AppState, info: PlaylistInfo) -> ApiResult<Json<Value>> {
+    let Some(mut track) = info.tracks.into_iter().next() else {
+        let what = info.unmatched.first().map(|u| format!(" for {u}")).unwrap_or_default();
+        return Err(ApiError::bad_request(format!("No good YouTube Music match found{what}")));
+    };
+    if let Some(t) = s.db.get_track(&track.video_id)? {
+        if t.downloaded && t.file_path.as_deref().is_some_and(|p| std::path::Path::new(p).exists()) {
+            track = t;
+        }
+    }
+    Ok(Json(json!({ "kind": "song", "video_id": track.video_id, "track": track })))
 }
 
 /// The library entry if we have the song, otherwise its YouTube Music metadata

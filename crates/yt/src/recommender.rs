@@ -98,7 +98,8 @@ where
 {
     let mut seeds: Vec<String> = Vec::new();
     for s in seed_ids {
-        if !s.is_empty() && !seeds.contains(s) {
+        // SoundCloud songs have no YouTube Music radio.
+        if !s.is_empty() && !crate::ytm::is_soundcloud_id(s) && !seeds.contains(s) {
             seeds.push(s.clone());
         }
     }

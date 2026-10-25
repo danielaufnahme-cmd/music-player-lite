@@ -33,6 +33,8 @@ impl App {
     fn src_for(&self, t: &Track) -> Src {
         match t.file_path.as_ref().filter(|p| !p.is_empty() && std::path::Path::new(p).exists()) {
             Some(p) => Src::File(p.clone()),
+            // podcast episode not downloaded: stream the enclosure link
+            None if crate::podcasts::episode_ids(&t.video_id).is_some() => Src::Url(t.thumbnail_url.clone()),
             None => Src::Url(self.api.stream_url(&t.video_id)),
         }
     }
@@ -62,6 +64,7 @@ impl App {
 
     fn open_current(&mut self) {
         let Some(t) = self.current().cloned() else { return };
+        self.pod_before_open();
         self.position = 0.0;
         self.duration = t.duration_sec as f64;
         self.preloaded = None;
@@ -70,15 +73,23 @@ impl App {
             title: t.title.clone(),
             artist: t.artist.clone(),
             album: t.album.clone(),
-            cover_url: self.api.cover_url(&t.video_id),
+            cover_url: match crate::podcasts::episode_ids(&t.video_id) {
+                Some((podcast, _)) => format!("{}/api/podcasts/{podcast}/cover", self.api.base),
+                None => self.api.cover_url(&t.video_id),
+            },
             duration: if t.duration_sec > 0 { Some(t.duration_sec as f64) } else { None },
         });
+        self.pod_on_open(&t);
         self.playing = true;
         self.win.global::<crate::Player>().set_playing(true);
         self.update_position_ui();
         self.sync_player_ui();
         self.track_changed();
         // Count the play (best effort), then refresh the "recent"/"top" rows.
+        // Podcast episodes are not songs: they keep their own position instead.
+        if self.pod.playing.is_some() {
+            return;
+        }
         let api = self.api.clone();
         let id = t.video_id.clone();
         self.spawn(async move {
@@ -161,7 +172,7 @@ impl App {
         } else if self.repeat == Repeat::All {
             self.queue.index = 0;
         } else {
-            if auto && self.continue_with_recs() {
+            if auto && self.pod_current_ids().is_none() && self.continue_with_recs() {
                 return;
             }
             if auto {
@@ -315,6 +326,7 @@ impl App {
                     self.duration = d;
                 }
                 self.update_position_ui();
+                self.pod_loaded();
             }
             AudioEvent::Position(p, d) => {
                 self.position = p;
@@ -322,16 +334,21 @@ impl App {
                     self.duration = d;
                 }
                 self.update_position_ui();
+                self.pod_position(p);
             }
             AudioEvent::Playing(p) => {
                 if self.playing != p {
                     self.playing = p;
                     self.win.global::<crate::Player>().set_playing(p);
+                    if !p {
+                        self.pod_paused();
+                    }
                     self.start_waves();
                 }
             }
             AudioEvent::Advanced(d) => {
                 // The preloaded song started gaplessly.
+                self.pod_ended();
                 self.queue.index += 1;
                 self.preloaded = None;
                 self.position = 0.0;
@@ -341,8 +358,12 @@ impl App {
                 self.sync_player_ui();
                 self.track_changed();
                 self.update_position_ui();
+                if let Some(t) = self.current().cloned() {
+                    self.pod_on_open(&t);
+                }
             }
             AudioEvent::Ended => {
+                self.pod_ended();
                 if self.repeat == Repeat::One {
                     self.open_current();
                 } else {
@@ -376,8 +397,9 @@ impl App {
     pub(crate) fn track_changed(&mut self) {
         let Some(t) = self.current().cloned() else { return };
         let id = t.video_id.clone();
-        // lyrics
-        match self.lyrics.get(&id).cloned() {
+        // lyrics (episodes have none)
+        let episode = self.pod_current_ids().is_some();
+        match self.lyrics.get(&id).cloned().or_else(|| episode.then(Lyrics::default)) {
             Some(l) => self.show_lyrics(Some(l)),
             None if !self.settings.show_lyrics => self.show_lyrics(None),
             None => {
@@ -450,6 +472,10 @@ impl App {
     }
 
     pub fn add_current_to_playlist(&mut self) {
+        if self.pod_current_ids().is_some() {
+            self.snack("Podcast episodes can’t be added to playlists");
+            return;
+        }
         if let Some(t) = self.current().cloned() {
             self.add_to_playlist(t);
         }

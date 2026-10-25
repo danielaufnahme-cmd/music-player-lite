@@ -1,6 +1,8 @@
 //! Figures out what a pasted YouTube / YouTube Music link points at: one
 //! song, a playlist (or album), or a song inside a playlist where the user
-//! has to choose.
+//! has to choose. Public Spotify, Apple Music, Deezer and SoundCloud links
+//! are recognised too; the provider reads them and finds the songs on
+//! YouTube Music.
 
 use reqwest::Url;
 
@@ -11,6 +13,10 @@ pub enum LinkKind {
     },
     /// `source` is a canonical URL the provider can read (`playlist?list=` or an album `browse/` page).
     Playlist {
+        source: String,
+    },
+    /// A song link of another service; the provider finds the YouTube video.
+    ExternalSong {
         source: String,
     },
     /// A song opened from a playlist (`watch?v=…&list=…`): song or whole playlist?
@@ -43,7 +49,14 @@ fn is_generated_mix(list_id: &str) -> bool {
 pub fn classify(input: &str) -> Result<LinkKind, &'static str> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Err("Paste a YouTube or YouTube Music link");
+        return Err("Paste a YouTube, Spotify, Apple Music, Deezer or SoundCloud link");
+    }
+    if let Some(link) = geonix_yt::providers::parse_link(trimmed) {
+        return Ok(match link.kind {
+            geonix_yt::providers::Kind::Track => LinkKind::ExternalSong { source: link.url },
+            // Short links (`spotify.link`, …) are followed when read, so they count as playlists here.
+            _ => LinkKind::Playlist { source: link.url },
+        });
     }
     let with_scheme = if trimmed.contains("://") { trimmed.to_string() } else { format!("https://{trimmed}") };
     let url = Url::parse(&with_scheme).map_err(|_| "That doesn't look like a link")?;
@@ -75,7 +88,7 @@ pub fn classify(input: &str) -> Result<LinkKind, &'static str> {
             _ => return Err("That YouTube link isn't a song or a playlist"),
         }
     } else {
-        return Err("Only YouTube and YouTube Music links are supported");
+        return Err("Only YouTube, YouTube Music, Spotify, Apple Music, Deezer and SoundCloud links are supported");
     };
 
     let video = video.filter(|v| valid_video_id(v));
@@ -180,6 +193,32 @@ mod tests {
         );
         assert_eq!(classify("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1"), Ok(song("dQw4w9WgXcQ")));
         assert_eq!(classify("https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RDAMVMdQw4w9WgXcQ"), Ok(song("dQw4w9WgXcQ")));
+    }
+
+    #[test]
+    fn links_of_other_services() {
+        let playlist = |s: &str| Ok(LinkKind::Playlist { source: s.into() });
+        assert_eq!(
+            classify("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=abc"),
+            playlist("https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M")
+        );
+        assert_eq!(classify("https://www.deezer.com/en/album/302127"), playlist("https://www.deezer.com/album/302127"));
+        assert_eq!(classify("https://soundcloud.com/forss/sets/soulhack"), playlist("https://soundcloud.com/forss/sets/soulhack"));
+        assert_eq!(
+            classify("https://music.apple.com/us/album/discovery/697194953?i=697195462"),
+            Ok(LinkKind::ExternalSong { source: "https://music.apple.com/us/album/discovery/697194953?i=697195462".into() })
+        );
+        assert_eq!(
+            classify("spotify:track:2sFepQNyl1WjpROruP8bJ0"),
+            Ok(LinkKind::ExternalSong { source: "https://open.spotify.com/track/2sFepQNyl1WjpROruP8bJ0".into() })
+        );
+        assert_eq!(
+            playlist_source_of("https://on.soundcloud.com/AbCdE").as_deref(),
+            Some("https://on.soundcloud.com/AbCdE"),
+            "short links are followed by the provider"
+        );
+        assert!(playlist_source_of("https://www.deezer.com/track/3135556").is_none());
+        assert!(classify("https://open.spotify.com/artist/45dkTj5sMRSjrmBSBeiHym").is_err());
     }
 
     #[test]

@@ -28,14 +28,19 @@ about 45 MB of RAM and 0% CPU when idle.**
 
 - Search YouTube Music (songs only), preview anything, download songs or whole
   playlists as MP3s with ID3 tags and cover art (yt-dlp + ffmpeg).
+- **Import from other services:** paste a public Spotify, Apple Music, Deezer or
+  SoundCloud playlist, album or song link. Songs are found on YouTube Music and
+  downloaded; SoundCloud songs download from SoundCloud. Songs that can't be found are listed.
+- **Podcasts:** search (iTunes) or paste an RSS link, subscribe, and new episodes
+  download by themselves. Each episode remembers where you stopped.
 - Library with Songs, Artists, Albums and Playlists, playlist ordering, synced lyrics
   (karaoke highlight) and an editable "Up next" queue.
 - "For You" home screen and a daily **Discover Mix** built from your own listening.
 - **Private listening:** one click pauses your listening history and recommendations.
 - **Device sync:** pair your computers with a 6-letter code and they copy songs and
   playlists to each other over [Tailscale](https://tailscale.com). Additive, never deletes.
-- **Phone extras (optional):** add music from a phone web page, and listen on the
-  phone through Navidrome + Amperfy.
+- **Phone extras (optional):** add music from a phone web page, turn the songs you
+  heart in Amperfy into a playlist, and listen on the phone through Navidrome + Amperfy.
 - **Settings page** with export / import of all settings to one file.
 - Media keys and the desktop media widget (MPRIS on Linux), light and dark theme,
   accent colour from the playing cover.
@@ -84,6 +89,13 @@ yt-dlp and ffmpeg only run while something downloads.
   preview it, then "Download all". A local playlist with the same name and order
   appears immediately and fills up as songs finish downloading. A song link pasted
   into Search shows just that song.
+- **Other services:** Spotify (`open.spotify.com`, `spotify.link`), Apple Music
+  (`music.apple.com`), Deezer (`deezer.com`) and SoundCloud (`soundcloud.com`) playlist,
+  album and song links work in Search the same way. Each song is looked up on YouTube
+  Music and downloaded from there, with the best match kept only when title, artist and
+  length agree. SoundCloud songs download from SoundCloud. Songs that can't be matched
+  are listed under "… couldn't be found" in the import dialog, and the rest is imported.
+  Some services only show part of a long list without a login; the preview says so.
 - **Links:** `music.youtube.com`, `www.youtube.com`, `m.youtube.com` and `youtu.be`
   links work, with or without `https://` and extra parameters like `&si=`:
   `playlist?list=…`, album pages (`browse/MPRE…`), `watch?v=…`, `shorts/…`. A
@@ -103,6 +115,12 @@ yt-dlp and ffmpeg only run while something downloads.
   automatically once a day.
 - **Private listening:** the toggle in the sidebar. While it is on, songs you play don't
   change play counts, "Recently played", "Most played" or recommendations.
+- **Podcasts:** the Podcasts tab in the sidebar. Search iTunes or paste an RSS feed link
+  and subscribe. A feed check runs shortly after the app starts and then every 4 hours,
+  and new episodes download automatically. Episodes are stored in `podcasts/` inside the
+  data folder (see [Configuration](#configuration)), not in your music folder, so
+  Navidrome doesn't list them as songs. Each episode remembers where you stopped, and
+  from 95 % on it counts as played.
 - **Keyboard:** Space toggles play/pause, Ctrl+→ and Ctrl+← skip to the next or
   previous song, Ctrl+F opens Search. In Downloads, Ctrl+A selects all and Delete
   removes the selection.
@@ -175,12 +193,16 @@ New-NetFirewallRule -DisplayName "Music Player Lite sync" -Direction Inbound -Pr
 ### Adding music from the phone
 
 The server also serves a phone-friendly page (Settings → Phone page): paste a YouTube /
-YouTube Music link and it detects what it is.
+YouTube Music link (or a Spotify, Apple Music, Deezer or SoundCloud one) and it detects
+what it is.
 
 - **Song:** preview with an "In library" badge, then Download.
 - **Playlist or album:** preview of every song and three options: create a new
-  playlist, add to an existing playlist, or download the songs only.
+  playlist, add to an existing playlist, or download the songs only. Songs that can't be
+  matched are listed.
 - Live progress, retry for failed songs, and a list of recent downloads.
+- **Hearted songs:** a section lists the songs you heart in Amperfy. They can be turned
+  into a playlist, see [Listening on the phone](#listening-on-the-phone-navidrome--amperfy).
 
 The server listens on `127.0.0.1` only. To reach the page from a phone on your tailnet,
 publish it with Tailscale Serve (on Linux run it with `sudo`, or run
@@ -247,6 +269,23 @@ Setup (Linux example):
    ```
    and in the phone app use the server `https://your-pc.your-tailnet.ts.net:4533`.
 
+**Hearted songs to a playlist.** Songs you heart in Amperfy are starred in Navidrome.
+The phone page (see [Adding music from the phone](#adding-music-from-the-phone)) lists
+them under **Hearted songs**. Pick **New playlist** (named "Favorites" plus the date by
+default) or an existing playlist, and the songs are added to it and unhearted. Songs
+that are not in the app's library stay hearted and are listed. The new songs reach
+Amperfy through the helper from step 3. This needs the Navidrome login from step 2:
+the app reads the same file as `navidrome_rescan.py`, `~/.config/navidrome/LOGIN.txt`
+or the path in `NAVIDROME_LOGIN_FILE`. The file has exactly these two lines:
+
+```text
+Username: your-navidrome-user
+Password: your-navidrome-password
+```
+
+The app talks to Navidrome at `NAVIDROME_URL` (default `http://127.0.0.1:4533`). Without
+a login file the section says that Navidrome is not set up.
+
 ## Configuration
 
 Most things are in the app's **Settings** page. The rest are environment variables.
@@ -283,6 +322,8 @@ The download folder can also be changed in Settings → Downloads.
 | `GEONIX_DATA_DIR` | see table above | Library database and cover cache |
 | `GEONIX_MUSIC_DIR` | see table above | Where MP3s are saved |
 | `GEONIX_AFTER_DOWNLOADS` | *(none)* | Command run ~10 s after downloads or imports settle (see [Navidrome](#listening-on-the-phone-navidrome--amperfy)) |
+| `NAVIDROME_URL` | `http://127.0.0.1:4533` | Navidrome server used by the rescan helper and the phone page's hearted songs |
+| `NAVIDROME_LOGIN_FILE` | `~/.config/navidrome/LOGIN.txt` | Navidrome login file (format in [Listening on the phone](#listening-on-the-phone-navidrome--amperfy)) |
 | `GEONIX_YTDLP` / `GEONIX_FFMPEG` | `PATH`, then next to the binary | yt-dlp and ffmpeg to use |
 | `GEONIX_TAILSCALE` | `tailscale` on `PATH`, then the standard macOS / Windows install paths | Tailscale CLI used to find devices when pairing |
 | `GEONIX_DEVICE_NAME` | the computer's host name | Name shown to your other devices |
@@ -324,8 +365,8 @@ One Cargo workspace, four crates:
 | Crate | Job |
 |---|---|
 | `crates/ui` | Slint desktop app, binary `geonix-lite`. Talks to the server over HTTP + Server-Sent Events, starts the server in-process when none answers on the port. `--headless` runs only the server. |
-| `crates/server` | axum + SQLite (bundled): library, playlists, download queue, recommendations, lyrics, settings, audio streaming with Range support, phone page, device sync. Also a standalone binary `geonix-server`. |
-| `crates/yt` | YouTube Music client (InnerTube API with reqwest), downloads through yt-dlp + ffmpeg, ID3 tagging, lyrics from LRCLIB and YouTube Music, recommendations. |
+| `crates/server` | axum + SQLite (bundled): library, playlists, download queue, recommendations, lyrics, settings, audio streaming with Range support, phone page, device sync, podcasts, hearted songs. Also a standalone binary `geonix-server`. |
+| `crates/yt` | YouTube Music client (InnerTube API with reqwest), downloads through yt-dlp + ffmpeg, ID3 tagging, lyrics from LRCLIB and YouTube Music, recommendations, reading Spotify / Apple Music / Deezer / SoundCloud links and matching their songs on YouTube Music. |
 | `crates/player` | Audio engine: symphonia decoding + cpal output, local files and HTTP streams, gapless preload, media keys (souvlaki). |
 
 ```

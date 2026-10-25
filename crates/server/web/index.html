@@ -161,6 +161,9 @@ button:disabled { opacity: 0.55; cursor: default; transform: none; }
 .bar { height: 4px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-top: 6px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, var(--accent), #5ec4ff); transition: width 0.4s ease; }
 .err-line { color: var(--bad); font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unmatched { margin-top: 12px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 197, 107, 0.08); border: 1px solid rgba(255, 197, 107, 0.2); }
+.unmatched summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--warn); }
+.unmatched .sub { margin-top: 6px; white-space: normal; }
 .more { color: var(--muted); font-size: 13px; text-align: center; padding: 10px 0 0; }
 
 .choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
@@ -216,14 +219,17 @@ button:disabled { opacity: 0.55; cursor: default; transform: none; }
 
   <section class="card" id="linkCard">
     <h2>Paste a link</h2>
-    <p class="hint">A song, playlist or album from YouTube Music or YouTube.</p>
+    <p class="hint">A song, playlist or album from YouTube Music, YouTube, Spotify, Apple Music, Deezer or SoundCloud.</p>
     <form class="input-row" id="linkForm" autocomplete="off">
-      <input type="url" id="link" inputmode="url" placeholder="https://music.youtube.com/…" aria-label="YouTube or YouTube Music link" enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <input type="url" id="link" inputmode="url" placeholder="Paste a music link…" aria-label="Music link from YouTube, Spotify, Apple Music, Deezer or SoundCloud" enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false">
       <button type="button" id="pasteBtn" class="ghost" aria-label="Paste from clipboard">Paste</button>
     </form>
   </section>
 
   <section id="stage" aria-live="polite"></section>
+
+  <div class="section-title">Hearted songs</div>
+  <section class="card" id="favs" aria-live="polite"><div class="empty">Checking Amperfy hearts…</div></section>
 
   <div class="section-title">Recent downloads</div>
   <section class="card recent" id="recent"><div class="empty">Nothing downloaded yet.</div></section>
@@ -300,7 +306,7 @@ async function api(path, options = {}) {
     try {
       res = await fetch(path, { headers: { "Content-Type": "application/json" }, signal: ctrl.signal, ...options });
     } catch {
-      if (ctrl.signal.aborted) throw new ApiError("Your PC took too long to answer. Try again in a moment.");
+      if (ctrl.signal.aborted) throw new ApiError("Your PC took too long to answer. Try again in a minute, it keeps working on it meanwhile.");
       setOnline(false);
       throw new ApiError("Can't reach your PC. Make sure it's on and Tailscale is connected.");
     }
@@ -311,7 +317,7 @@ async function api(path, options = {}) {
     return body;
   } catch (e) {
     if (e instanceof ApiError) throw e;
-    throw new ApiError(ctrl.signal.aborted ? "Your PC took too long to answer. Try again in a moment." : "Something went wrong. Try again.");
+    throw new ApiError(ctrl.signal.aborted ? "Your PC took too long to answer. Try again in a minute, it keeps working on it meanwhile." : "Something went wrong. Try again.");
   } finally {
     clearTimeout(timer);
   }
@@ -422,8 +428,19 @@ function renderRecent() {
 let resolveSeq = 0;
 let lastResolved = "";
 
+// Services the PC can import from; it checks the link properly, this only decides when to look up while typing.
+const LINK_HOSTS = /(^|[/.@])(youtube\.com|youtu\.be|open\.spotify\.com|spotify\.link|music\.apple\.com|deezer\.com|deezer\.page\.link|soundcloud\.com|on\.soundcloud\.com)\//i;
 function looksLikeLink(s) {
-  return /(youtube\.com|youtu\.be)\//i.test(s);
+  return LINK_HOSTS.test(s) || /^spotify:(track|album|playlist):/i.test(s);
+}
+
+// Songs that had no good YouTube Music match: a count that opens into the titles.
+function unmatchedBlock(list) {
+  if (!list || !list.length) return null;
+  return el("details", { class: "unmatched" },
+    el("summary", { text: `${list.length} song${list.length === 1 ? "" : "s"} not found on YouTube Music` }),
+    list.slice(0, 100).map((t) => el("div", { class: "sub", text: t })),
+    list.length > 100 ? el("div", { class: "more", text: `+ ${list.length - 100} more` }) : null);
 }
 
 function showLoading() {
@@ -433,7 +450,8 @@ function showLoading() {
       el("div", { class: "meta", style: "flex:1" },
         el("div", { class: "skel", style: "height:18px;width:80%" }),
         el("div", { class: "skel", style: "height:14px;width:55%;margin-top:10px" }),
-        el("div", { class: "skel", style: "height:22px;width:90px;margin-top:12px;border-radius:999px" })))));
+        el("div", { class: "skel", style: "height:22px;width:90px;margin-top:12px;border-radius:999px" }))),
+    el("p", { class: "hint", style: "margin:14px 0 0", text: "Matching songs on YouTube Music… big playlists can take a minute." })));
 }
 
 function showError(message, retryFn) {
@@ -568,7 +586,8 @@ async function renderPlaylist(url, info) {
       const where = mode === "songs" ? "your library" : `“${r.name}”`;
       job = { kind: "playlist", title: r.name, tracks, inLibrary: new Set(tracks.filter((t) => t.downloaded).map((t) => t.video_id)),
               byVideo: new Map((r.downloads || []).map((d) => [d.video_id, d.id])),
-              note: r.already_in_playlist ? `${r.already_in_playlist} already in the playlist` : "", where };
+              note: [r.already_in_playlist ? `${r.already_in_playlist} already in the playlist` : "", r.note].filter(Boolean).join(". "),
+              unmatched: r.unmatched && r.unmatched.length ? r.unmatched : info.unmatched, where };
       renderJob();
       renderRecent();
       toast(r.queued ? `Downloading ${r.queued} song${r.queued === 1 ? "" : "s"} to ${where}` : `Added to ${where}`);
@@ -596,6 +615,8 @@ async function renderPlaylist(url, info) {
         el("div", { class: "summary" },
           inLib ? el("span", { class: "badge ok" }, `${inLib} in library`) : null,
           missing ? el("span", { class: "badge new" }, `${missing} to download`) : null))),
+    info.note ? el("p", { class: "hint", style: "margin:12px 0 0", text: info.note }) : null,
+    unmatchedBlock(info.unmatched),
     el("div", { class: "modes" },
       modeButton("new", "plus", "Create new playlist", "Name it and download the songs"),
       extraNew,
@@ -634,7 +655,8 @@ function renderJob() {
 
   const list = el("div", { class: "list" }, rows.slice(0, 60).map((r) => downloadRow(r.t, r.d, r.lib, r.skipped)));
   if (rows.length > 60) list.append(el("div", { class: "more", text: `+ ${rows.length - 60} more songs` }));
-  stage.replaceChildren(el("section", { class: "card" }, head, list,
+  stage.replaceChildren(el("section", { class: "card" }, head, allDone ? null : unmatchedBlock(job.unmatched), list,
+    allDone ? unmatchedBlock(job.unmatched) : null,
     allDone ? el("button", { class: "wide ghost", onclick: resetLink, text: "Add another link" }) : null));
 }
 
@@ -644,6 +666,114 @@ function resetLink() {
   $("link").value = "";
   stage.replaceChildren();
   $("link").focus();
+}
+
+// -------------------------------------------------------- hearted songs
+// Songs hearted in Amperfy (starred in Navidrome) -> a Lite playlist.
+const favs = $("favs");
+// True while a move runs or its result is on screen: don't refresh over it.
+let favsHold = false;
+
+async function loadFavorites() {
+  if (favsHold) return;
+  try {
+    renderFavorites(await api("/api/favorites"));
+  } catch (e) {
+    favs.replaceChildren(el("div", { class: "notice" },
+      el("div", { class: "ico" }, icon("alert")),
+      el("div", {}, el("b", { text: "Hearted songs" }), el("p", { text: e.message }))));
+  }
+}
+
+function favoritesResult(r, name) {
+  const lines = [];
+  if (r.playlist_id) lines.push(`Added ${r.added} to “${r.playlist_name || name}”` + (r.already_there ? `, ${r.already_there} already there` : ""));
+  else lines.push("Nothing was added.");
+  if (r.unstarred) lines.push(`${r.unstarred} unhearted in Amperfy. The playlist shows up there within a minute.`);
+  const bad = r.not_found || [];
+  favs.replaceChildren(
+    el("div", { class: "notice" },
+      el("div", { class: r.unstar_error ? "ico" : "ico ok" }, icon(r.unstar_error ? "alert" : "check")),
+      el("div", {}, el("b", { text: "Done" }), lines.map((l) => el("p", { text: l })),
+        r.unstar_error ? el("p", { class: "err-line", style: "white-space:normal", text: r.unstar_error }) : null)),
+    bad.length ? el("div", { class: "list" },
+      el("p", { class: "hint", style: "margin:10px 0 0", text: `${bad.length} not found in Lite, still hearted:` }),
+      bad.slice(0, 20).map((t) => el("div", { class: "row" },
+        el("div", { class: "meta" }, el("div", { class: "title", text: t.title || "Unknown song" }), el("div", { class: "sub", text: t.artist || "" })),
+        el("span", { class: "chip dim", text: "Not found" })))) : null,
+    el("button", { class: "wide ghost", onclick: () => { favsHold = false; loadFavorites(); }, text: "OK" }));
+}
+
+async function renderFavorites(f) {
+  if (!f.count) {
+    favs.replaceChildren(el("div", { class: "empty", text: "No hearted songs. Heart some in Amperfy and they show up here." }));
+    return;
+  }
+  let playlists = [];
+  try { playlists = (await api("/api/playlists")).filter((p) => p.kind !== "discover"); } catch { /* "existing" stays empty */ }
+  const missing = f.songs.filter((s) => !s.in_library).length;
+  let mode = "new";
+  const today = new Date();
+  const stamp = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const nameInput = el("input", { type: "text", value: `Favorites ${stamp}`, placeholder: "Playlist name", maxlength: "120", enterkeyhint: "done", "aria-label": "New playlist name" });
+  const select = el("select", { "aria-label": "Playlist to add to" },
+    playlists.length ? playlists.map((p) => el("option", { value: p.id, text: `${p.name} · ${p.track_count} songs` }))
+                     : el("option", { value: "", text: "No playlists yet" }));
+  const extraNew = el("div", { class: "mode-extra" }, el("label", { text: "Name" }), nameInput);
+  const extraExisting = el("div", { class: "mode-extra", hidden: true }, el("label", { text: "Add to" }), select);
+  const go = el("button", { class: "wide primary" });
+  const modeButtons = [];
+  const plural = `${f.count} song${f.count === 1 ? "" : "s"}`;
+  function updateButton() {
+    go.disabled = mode === "new" ? !nameInput.value.trim() : !playlists.length;
+    go.textContent = mode === "new" ? `Create playlist with ${plural}` : `Add ${plural}`;
+  }
+  function modeButton(key, ico, title, desc) {
+    const b = el("button", { class: "mode", type: "button", "aria-pressed": key === mode ? "true" : "false",
+      onclick: () => {
+        mode = key;
+        for (const mb of modeButtons) mb.setAttribute("aria-pressed", mb.dataset.mode === key ? "true" : "false");
+        extraNew.hidden = key !== "new";
+        extraExisting.hidden = key !== "existing";
+        updateButton();
+      } },
+      el("span", { class: "ico" }, icon(ico)),
+      el("div", {}, el("b", { text: title }), el("span", { text: desc })));
+    b.dataset.mode = key;
+    modeButtons.push(b);
+    return b;
+  }
+  nameInput.addEventListener("input", updateButton);
+  go.addEventListener("click", async () => {
+    const body = mode === "new" ? { new_name: nameInput.value.trim() } : { playlist_id: Number(select.value) };
+    favsHold = true;
+    go.disabled = true;
+    go.replaceChildren(el("span", { class: "spin" }), " Moving…");
+    try {
+      favoritesResult(await api("/api/favorites/to-playlist", { method: "POST", body: JSON.stringify(body) }), body.new_name);
+    } catch (e) {
+      favsHold = false;
+      toast(e.message);
+      updateButton();
+    }
+  });
+  const list = el("div", { class: "list" });
+  for (const s of f.songs.slice(0, 8)) {
+    list.append(el("div", { class: "row" },
+      el("div", { class: "meta" }, el("div", { class: "title", text: s.title || "Unknown song" }), el("div", { class: "sub", text: s.artist || "" })),
+      s.in_library ? null : el("span", { class: "chip dim", text: "Not in Lite" })));
+  }
+  if (f.songs.length > 8) list.append(el("div", { class: "more", text: `+ ${f.songs.length - 8} more songs` }));
+  favs.replaceChildren(
+    el("h2", { text: `${plural} hearted` }),
+    el("p", { class: "hint", style: "margin:0", text: missing ? `${missing} not in Lite. Those stay hearted.` : "Move them into a playlist. They get unhearted after." }),
+    el("div", { class: "modes" },
+      modeButton("new", "plus", "Create new playlist", "Name it, default is today's date"),
+      extraNew,
+      modeButton("existing", "list", "Add to a playlist", "Songs already in it are skipped"),
+      extraExisting),
+    go, list);
+  updateButton();
 }
 
 // --------------------------------------------------------------- inputs
@@ -675,7 +805,7 @@ $("pasteBtn").addEventListener("click", async () => {
 
 window.addEventListener("online", () => { checkHealth(); loadDownloads(); });
 window.addEventListener("offline", () => setOnline(false));
-document.addEventListener("visibilitychange", () => { if (!document.hidden) loadDownloads(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadDownloads(); loadFavorites(); } });
 
 // Share target / deep link: /?url=…
 const shared = new URLSearchParams(location.search).get("url");
@@ -683,6 +813,7 @@ if (shared) { $("link").value = shared; resolveLink(shared); }
 
 checkHealth();
 loadDownloads();
+loadFavorites();
 connectEvents();
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});

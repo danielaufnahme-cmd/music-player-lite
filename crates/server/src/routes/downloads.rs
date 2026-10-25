@@ -36,8 +36,11 @@ pub struct CreateBody {
 
 /// The canonical playlist URL for a pasted playlist (or album) link.
 pub(crate) fn playlist_source(url: &str) -> ApiResult<String> {
-    crate::resolve::playlist_source_of(url)
-        .ok_or_else(|| ApiError::bad_request("playlist_url must be a YouTube or YouTube Music playlist or album link"))
+    crate::resolve::playlist_source_of(url).ok_or_else(|| {
+        ApiError::bad_request(
+            "playlist_url must be a YouTube, YouTube Music, Spotify, Apple Music, Deezer or SoundCloud playlist or album link",
+        )
+    })
 }
 
 /// `{"video_id": "..."}` queues one song; `{"playlist_url": "...", "name": "..."}`
@@ -116,13 +119,16 @@ pub async fn playlist_info(State(s): State<AppState>, Query(p): Query<InfoQuery>
             t
         })
         .collect();
-    Ok(Json(PlaylistInfoOut { title: info.title, tracks }))
+    Ok(Json(PlaylistInfoOut { title: info.title, tracks, unmatched: info.unmatched, note: info.note }))
 }
 
 #[derive(serde::Serialize)]
 pub struct PlaylistInfoOut {
     pub(crate) title: String,
     pub(crate) tracks: Vec<crate::models::Track>,
+    /// Songs of a Spotify / Apple Music / Deezer / SoundCloud link with no good YouTube Music match.
+    pub(crate) unmatched: Vec<String>,
+    pub(crate) note: Option<String>,
 }
 
 /// Remove one finished download record from the list. The music file stays.

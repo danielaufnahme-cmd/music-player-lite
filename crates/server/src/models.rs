@@ -117,6 +117,15 @@ pub struct Album {
 pub struct PlaylistInfo {
     pub title: String,
     pub tracks: Vec<Track>,
+    /// Songs of a Spotify / Apple Music / Deezer / SoundCloud link with no good YouTube Music match.
+    #[serde(default)]
+    pub unmatched: Vec<String>,
+    /// Something to tell the user about the link (e.g. a song cap), if anything.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// The link was one song, not a playlist or album.
+    #[serde(default)]
+    pub single: bool,
 }
 
 pub fn now_ms() -> i64 {

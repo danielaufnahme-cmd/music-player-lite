@@ -101,7 +101,7 @@ fn get(id: &str, size: f32, radius: f32, scale: f32) -> Image {
         let key2 = key.clone();
         ctx.rt.spawn(async move {
             let _permit = sem.acquire().await;
-            let bytes = api.cover_bytes(&key2.0).await;
+            let bytes = fetch(&api, &key2.0).await;
             let decoded = match bytes {
                 Some(b) => tokio::task::spawn_blocking(move || decode(&b, key2.1, key2.2)).await.ok().flatten(),
                 None => None,
@@ -158,7 +158,7 @@ fn insert(key: Key, buf: Option<SharedPixelBuffer<Rgba8Pixel>>) {
 
 /// Decode, crop to a square of `px`, round the corners (radius `rad`) and premultiply.
 pub fn decode(bytes: &[u8], px: u32, rad: u32) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
-    let img = image::load_from_memory(bytes).ok()?;
+    let img = decode_jpeg_scaled(bytes, px).or_else(|| image::load_from_memory(bytes).ok())?;
     let img = img.resize_to_fill(px, px, image::imageops::FilterType::Triangle).to_rgba8();
     let (w, h) = img.dimensions();
     let mut buf = SharedPixelBuffer::<Rgba8Pixel>::new(w, h);
@@ -200,9 +200,44 @@ pub fn decode(bytes: &[u8], px: u32, rad: u32) -> Option<SharedPixelBuffer<Rgba8
     Some(buf)
 }
 
+/// JPEG covers (podcast art is often 3000x3000) are decoded straight at 1/2, 1/4
+/// or 1/8 size, at least `px` wide, so a huge cover never needs its full pixel
+/// buffer in memory. `None` for anything else or on errors (the caller then
+/// decodes normally).
+fn decode_jpeg_scaled(bytes: &[u8], px: u32) -> Option<image::DynamicImage> {
+    if !bytes.starts_with(&[0xFF, 0xD8]) {
+        return None;
+    }
+    let mut dec = jpeg_decoder::Decoder::new(bytes);
+    dec.read_info().ok()?;
+    let info = dec.info()?;
+    if info.width.max(info.height) <= (px as u16).saturating_mul(2) {
+        return None; // not much to save
+    }
+    let want = px.min(u16::MAX as u32) as u16;
+    dec.scale(want, want).ok()?;
+    let data = dec.decode().ok()?;
+    let info = dec.info()?;
+    let (w, h) = (info.width as u32, info.height as u32);
+    match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => image::RgbImage::from_raw(w, h, data).map(image::DynamicImage::ImageRgb8),
+        jpeg_decoder::PixelFormat::L8 => image::GrayImage::from_raw(w, h, data).map(image::DynamicImage::ImageLuma8),
+        _ => None,
+    }
+}
+
+/// Raw cover bytes: a song's cover from the server, or a podcast cover (see podcast_api).
+async fn fetch(api: &Api, id: &str) -> Option<Vec<u8>> {
+    if id.starts_with("podcast:") || id.starts_with("http") {
+        crate::podcast_api::fetch_cover(&api.base, id).await
+    } else {
+        api.cover_bytes(id).await
+    }
+}
+
 /// Colours of a cover (decoded at 40×40 only).
 pub async fn palette(api: &Api, id: &str) -> CoverPalette {
-    let Some(bytes) = api.cover_bytes(id).await else { return CoverPalette::FALLBACK };
+    let Some(bytes) = fetch(api, id).await else { return CoverPalette::FALLBACK };
     tokio::task::spawn_blocking(move || {
         image::load_from_memory(&bytes)
             .ok()
@@ -215,6 +250,19 @@ pub async fn palette(api: &Api, id: &str) -> CoverPalette {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn big_jpeg_is_decoded_scaled() {
+        let img = image::RgbImage::from_pixel(1600, 1600, image::Rgb([10, 200, 30]));
+        let mut jpg = Vec::new();
+        image::DynamicImage::ImageRgb8(img).write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg).unwrap();
+        let small = super::decode_jpeg_scaled(&jpg, 100).unwrap();
+        assert!(small.width() >= 100 && small.width() <= 400, "{}", small.width());
+        assert!(super::decode_jpeg_scaled(&jpg, 900).is_none(), "not worth scaling");
+        let buf = super::decode(&jpg, 100, 0).unwrap();
+        assert_eq!((buf.width(), buf.height()), (100, 100));
+        assert!(buf.as_slice()[50 * 100 + 50].g > 150);
+    }
+
     #[test]
     fn decodes_with_round_corners() {
         let img = image::RgbaImage::from_pixel(64, 64, image::Rgba([255, 0, 0, 255]));

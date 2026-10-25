@@ -283,7 +283,14 @@ where
 /// Synced lyrics when any source has them, otherwise plain, otherwise empty.
 pub async fn lyrics(t: &dyn Transport, video_id: &str, title: &str, artist: &str, duration_sec: i64) -> Value {
     combine(
-        || from_youtube_music(t, video_id),
+        || async move {
+            // SoundCloud songs are not on YouTube Music.
+            if crate::ytm::is_soundcloud_id(video_id) {
+                Ok(None)
+            } else {
+                from_youtube_music(t, video_id).await
+            }
+        },
         || async move {
             if title.is_empty() {
                 Ok(None)

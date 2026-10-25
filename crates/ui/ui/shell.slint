@@ -212,6 +212,13 @@ export component Sidebar inherits Rectangle {
                 selected: Nav.page == Page.downloads;
                 clicked => { Nav.go(Page.downloads); }
             }
+            NavItem {
+                icon: Icons.queue-music;
+                label: "Podcasts";
+                collapsed: root.collapsed;
+                selected: Nav.page == Page.podcasts || Nav.page == Page.podcast;
+                clicked => { Nav.go(Page.podcasts); }
+            }
         }
         // PLAYLISTS header
         HorizontalLayout {
@@ -394,6 +401,8 @@ export component SeekBar inherits Rectangle {
             viewbox-y: 0;
             viewbox-width: bar.width / 1px;
             viewbox-height: bar.height / 1px;
+            // 1:1 in bar coordinates (the default `contain` shrinks and centres it)
+            fit: preserve;
             commands: Player.wave-path(px, bar.height, large, Player.wave-tick);
             stroke: active;
             stroke-width: stroke;

@@ -2,15 +2,16 @@
 // floating over the bottom (app/lib/screens/shell.dart).
 import { Theme, Type, Covers } from "theme.slint";
 import { Icons } from "icons.slint";
-import { Nav, Page, Player, Lib, Ui } from "state.slint";
+import { Nav, Page, Player, Lib, Pod, Ui } from "state.slint";
 import { Sidebar, PlayerBar, QueuePanel } from "shell.slint";
 import { HomePage, SearchPage, LibraryPage, DownloadsPage, PlaylistPage, TrackListPage } from "pages.slint";
+import { PodcastsPage, PodcastPage } from "podcasts.slint";
 import { NowPlaying } from "nowplaying.slint";
 import { WaveStack } from "backdrop.slint";
 import { SettingsPage, Prefs } from "settings.slint";
 import { Dialogs, Menu, Snackbar } from "dialogs.slint";
 
-export { Theme, Covers, Icons, Nav, Page, Player, Lib, Ui, Prefs }
+export { Theme, Covers, Icons, Nav, Page, Player, Lib, Pod, Ui, Prefs }
 
 export component AppWindow inherits Window {
     title: "Music Player Lite";
@@ -182,6 +183,8 @@ export component AppWindow inherits Window {
                             if Nav.page == Page.library: LibraryPage { }
                             if Nav.page == Page.downloads: DownloadsPage { }
                             if Nav.page == Page.settings: SettingsPage { }
+                            if Nav.page == Page.podcasts: PodcastsPage { }
+                            if Nav.page == Page.podcast: PodcastPage { }
                             if Nav.page == Page.playlist: PlaylistPage { }
                             if Nav.page == Page.artist || Nav.page == Page.album: TrackListPage { }
                         }

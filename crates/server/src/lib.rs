@@ -11,6 +11,7 @@
 //!                     Tailscale and loopback addresses are served)
 //!   GEONIX_DATA_DIR   database + cover cache (default ~/.local/share/geonix-lite)
 //!   GEONIX_MUSIC_DIR  where MP3s are saved (default ~/Music/Geonix-lite)
+//!                     (podcast episodes go to <GEONIX_DATA_DIR>/podcasts, never here)
 //!   GEONIX_AFTER_DOWNLOADS  shell command run ~10 s after downloads/imports settle
 //!   GEONIX_TAILSCALE  path to the tailscale CLI (default: PATH, then the
 //!                     usual macOS / Windows install locations)
@@ -20,6 +21,7 @@ mod db;
 mod downloads;
 mod error;
 mod models;
+mod podcasts;
 pub mod provider;
 mod resolve;
 mod routes;
@@ -121,7 +123,9 @@ pub async fn serve(
 ) -> anyhow::Result<()> {
     let addr = listener.local_addr()?;
     let covers_dir = cfg.data_dir.join("covers");
-    for dir in [&cfg.data_dir, &cfg.music_dir, &covers_dir] {
+    // Outside the music folder, so a library scanner never sees podcast episodes.
+    let podcasts_dir = cfg.data_dir.join("podcasts");
+    for dir in [&cfg.data_dir, &cfg.music_dir, &covers_dir, &podcasts_dir] {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
 
@@ -168,6 +172,9 @@ pub async fn serve(
     let sync =
         sync::SyncManager::new(db.clone(), cfg.music_dir.clone(), downloads.clone(), sync_port).map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    let podcasts = podcasts::PodcastManager::new(db.clone(), http.clone(), podcasts_dir, covers_dir.clone());
+    podcasts.recover()?;
+
     let state = AppState {
         sync_listener: Arc::new(settings::SyncListener::new(cfg.sync_port.map(|_| sync_port))),
         downloads,
@@ -185,6 +192,9 @@ pub async fn serve(
         background.push(tokio::spawn(routes::recommendations::daily_refresh(state.clone())));
     }
 
+    // Feed check shortly after start and every few hours (sleeps in between).
+    background.push(tokio::spawn(podcasts.clone().check_loop()));
+
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     if let Some(l) = sync_listener {
         state.sync_listener.serve(l, &state);
@@ -193,7 +203,7 @@ pub async fn serve(
 
     tracing::info!("Music Player Lite server on http://{addr}  data: {}  music: {}", cfg.data_dir.display(), cfg.music_dir.display());
     let mut rx = stop_rx.clone();
-    let server = axum::serve(listener, routes::router(state)).with_graceful_shutdown(async move {
+    let server = axum::serve(listener, routes::router_with(state, podcasts)).with_graceful_shutdown(async move {
         let _ = rx.wait_for(|v| *v).await;
     });
     let server = std::future::IntoFuture::into_future(server);

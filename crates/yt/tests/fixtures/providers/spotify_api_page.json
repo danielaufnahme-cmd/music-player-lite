@@ -1,0 +1,56 @@
+{
+ "items": [
+  {
+   "track": {
+    "artists": [
+     {
+      "name": "Gracie Abrams"
+     }
+    ],
+    "duration_ms": 190533,
+    "name": "Look at My Life",
+    "type": "track",
+    "is_local": false
+   }
+  },
+  {
+   "track": {
+    "artists": [
+     {
+      "name": "Noah Kahan"
+     }
+    ],
+    "duration_ms": 286967,
+    "name": "Orbiter",
+    "type": "track",
+    "is_local": false
+   }
+  },
+  {
+   "track": {
+    "artists": [
+     {
+      "name": "Vanessa Carlton"
+     }
+    ],
+    "duration_ms": 237493,
+    "name": "A Thousand Miles",
+    "type": "track",
+    "is_local": false
+   }
+  },
+  {
+   "track": null
+  },
+  {
+   "track": {
+    "name": "Local file",
+    "duration_ms": 1000,
+    "artists": [],
+    "is_local": true,
+    "type": "track"
+   }
+  }
+ ],
+ "total": 328
+}

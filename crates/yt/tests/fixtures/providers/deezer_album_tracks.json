@@ -1,0 +1,39 @@
+{
+ "data": [
+  {
+   "id": 3135553,
+   "readable": true,
+   "title": "One More Time",
+   "duration": 320,
+   "artist": {
+    "name": "Daft Punk"
+   }
+  },
+  {
+   "id": 3135554,
+   "readable": true,
+   "title": "Aerodynamic",
+   "duration": 212,
+   "artist": {
+    "id": 27,
+    "name": "Daft Punk",
+    "tracklist": "https://api.deezer.com/artist/27/top?limit=50",
+    "type": "artist"
+   }
+  },
+  {
+   "id": 3135555,
+   "readable": true,
+   "title": "Digital Love",
+   "duration": 301,
+   "artist": {
+    "id": 27,
+    "name": "Daft Punk",
+    "tracklist": "https://api.deezer.com/artist/27/top?limit=50",
+    "type": "artist"
+   }
+  }
+ ],
+ "total": 14,
+ "next": "https://api.deezer.com/album/302127/tracks?limit=3&index=3"
+}

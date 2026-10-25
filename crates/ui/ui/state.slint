@@ -1,7 +1,7 @@
 // Globals shared between the Rust controller and the UI.
-import { TrackItem, PlaylistItem, CardItem, SectionItem, DownloadRow, LyricLine, MenuEntry, DeviceItem, PreviewItem } from "theme.slint";
+import { TrackItem, PlaylistItem, CardItem, SectionItem, DownloadRow, LyricLine, MenuEntry, DeviceItem, PreviewItem, PodcastItem, EpisodeItem } from "theme.slint";
 
-export enum Page { home, search, library, downloads, playlist, artist, album, settings }
+export enum Page { home, search, library, downloads, playlist, artist, album, settings, podcasts, podcast }
 
 export global Nav {
     in-out property <Page> page: Page.home;
@@ -174,6 +174,41 @@ export global Lib {
     callback dl-select-all();
 }
 
+// Podcasts page and the page of one podcast.
+export global Pod {
+    // Subscribed podcasts: 0 loading, 1 ok, 2 error
+    in-out property <int> subs-state;
+    in-out property <string> subs-error;
+    in-out property <[CardItem]> subs;
+    // Search box: 0 empty (shows the subscribed podcasts), 1 loading, 2 results, 3 none,
+    // 4 error, 5 an RSS link was typed
+    in-out property <string> query;
+    in-out property <int> search-state;
+    in-out property <string> search-error;
+    in-out property <[PodcastItem]> hits;
+    in-out property <bool> busy;
+    // One podcast: 0 loading, 1 ok, 2 error
+    in-out property <int> ep-state;
+    in-out property <string> ep-error;
+    in-out property <PodcastItem> current;
+    in-out property <string> current-error;
+    in-out property <[EpisodeItem]> episodes;
+    in-out property <bool> refreshing;
+
+    callback set-query(string);
+    callback submit();
+    callback retry();
+    callback open-sub(int);
+    callback open-hit(int);
+    callback subscribe-hit(int);
+    callback add-link();
+    callback unsubscribe();
+    callback refresh();
+    callback play-episode(int);
+    callback download-episode(int);
+    callback delete-episode(int);
+}
+
 // Popup menus, dialogs and the snackbar.
 export global Ui {
     in-out property <bool> shift-down;
@@ -216,6 +251,9 @@ export global Ui {
     in-out property <int> import-state;
     in-out property <string> import-error;
     in-out property <string> import-summary;
+    // Songs of a Spotify / Apple Music / Deezer / SoundCloud list that YouTube Music doesn't have, and a note (e.g. "only first 100 songs")
+    in-out property <[string]> import-unmatched;
+    in-out property <string> import-note;
     in-out property <[PreviewItem]> import-items;
     in-out property <string> import-action;
     in-out property <bool> import-can-submit;

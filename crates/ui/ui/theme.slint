@@ -110,6 +110,34 @@ export struct DownloadRow {
     picked: int,
 }
 
+// A podcast in search results or on its page.
+export struct PodcastItem {
+    id: int,
+    title: string,
+    author: string,
+    // cover key for Covers.get ("podcast:<id>" or an image link)
+    cover: string,
+    meta: string,
+    feed-url: string,
+    subscribed: bool,
+}
+
+// One podcast episode row. state: 0 not downloaded, 1 downloaded, 2 queued, 3 downloading, 4 failed
+export struct EpisodeItem {
+    id: int,
+    // id of the episode in the player ("podcast:<podcast>:<episode>")
+    key: string,
+    title: string,
+    subtitle: string,
+    // "Resume at 12:03" or ""
+    resume: string,
+    state: int,
+    // download progress and listening progress, 0..1
+    progress: float,
+    listened: float,
+    played: bool,
+}
+
 export struct LyricLine {
     text: string,
     time-ms: int,

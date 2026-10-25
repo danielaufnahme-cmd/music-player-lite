@@ -200,7 +200,7 @@ pub fn ytdlp_args_with(video_id: &str, tmp: &Path, attempt: usize, ffmpeg: Optio
         "after_move:%()j".into(),
         format!("{}/info.json", esc(tmp)),
     ];
-    if let Some(clients) = attempt_clients(attempt) {
+    if let Some(clients) = attempt_clients(attempt).filter(|_| !crate::ytm::is_soundcloud_id(video_id)) {
         args.push("--extractor-args".into());
         args.push(format!("youtube:player_client={}", clients.join(",")));
     }
@@ -209,7 +209,7 @@ pub fn ytdlp_args_with(video_id: &str, tmp: &Path, attempt: usize, ffmpeg: Optio
         args.push(ff.to_string_lossy().into_owned());
     }
     args.push("--".into());
-    args.push(format!("https://music.youtube.com/watch?v={video_id}"));
+    args.push(crate::ytm::watch_url(video_id));
     args
 }
 
